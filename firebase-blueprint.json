@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "Appointment": {
+      "title": "Appointment",
+      "description": "A clinical appointment with payment details.",
+      "type": "object",
+      "properties": {
+        "patientName": { "type": "string", "description": "Name of the patient." },
+        "patientEmail": { "type": "string", "format": "email", "description": "Email of the patient." },
+        "date": { "type": "string", "format": "date-time", "description": "Date and time of the appointment." },
+        "service": { "type": "string", "description": "The service requested (e.g., Consultation, Cleaning)." },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["YAPE", "PLIN", "CARD", "CASH"],
+          "description": "Method used for payment."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["PENDING", "PAID"],
+          "description": "Current status of the payment."
+        },
+        "amount": { "type": "number", "description": "Amount to be paid." },
+        "reference": { "type": "string", "description": "Payment reference or transaction ID." },
+        "uid": { "type": "string", "description": "UID of the user who created the appointment." }
+      },
+      "required": ["patientName", "date", "service", "amount", "paymentStatus", "uid"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "dni": { "type": "string", "description": "Documento Nacional de Identidad" },
+        "role": { "type": "string", "enum": ["admin", "medico", "patient"] },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "email", "role", "uid"]
+    }
+  },
+  "firestore": {
+    "/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Collection of clinical appointments."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents."
+    }
+  }
+}
