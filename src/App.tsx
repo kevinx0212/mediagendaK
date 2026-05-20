@@ -426,11 +426,26 @@ export default function App() {
     e.preventDefault();
     let user;
     if (authTab === 'patient') {
+      // Buscar paciente existente por DNI
       user = users.find(u => u.role === 'patient' && u.dni === formPatientDni);
+      // Si no existe, crear uno nuevo al vuelo
+      if (!user) {
+        if (!formPatientName.trim()) {
+          setAuthError('Por favor ingresa tu nombre completo.');
+          return;
+        }
+        const newPatient: UserProfile = {
+          id: Math.random().toString(36).substr(2, 9),
+          name: formPatientName.toUpperCase().trim(),
+          dni: formPatientDni.trim(),
+          role: 'patient',
+        };
+        setUsers(prev => [...prev, newPatient]);
+        user = newPatient;
+      }
     } else {
       user = users.find(u => u.role === authTab && u.username === formUsername && u.password === formPassword);
     }
-
     if (user) {
       setProfile(user);
       setCurrentView(user.role === 'patient' ? 'citas' : 'dashboard');
@@ -439,7 +454,6 @@ export default function App() {
       setAuthError('Credenciales incorrectas o usuario no encontrado.');
     }
   };
-
   // --- Appointment Actions ---
 
   const createAppointment = (data: any) => {
