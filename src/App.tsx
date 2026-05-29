@@ -363,8 +363,8 @@ export default function App() {
 
   // Ordenar por Urgencia (ALTA primero)
   const sortedAppointments = [...filteredAppointments].sort((a, b) => {
-    const urgWeights: any = { 'ALTA': 3, 'MEDIA': 2, 'BAJA': 1, undefined: 0 };
-    return (urgWeights[b.urgency] || 0) - (urgWeights[a.urgency] || 0);
+    const urgWeights: Record<string, number> = { 'ALTA': 3, 'MEDIA': 2, 'BAJA': 1 };
+    return (urgWeights[b.urgency || 'BAJA'] || 0) - (urgWeights[a.urgency || 'BAJA'] || 0);
   });
 
   if (loading) return null;
