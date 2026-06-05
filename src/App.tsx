@@ -1,13 +1,14 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * MEDIAGENDAK v3 — Sistema de Gestión Médica
+ * @license SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Calendar, User as UserIcon, CreditCard, CheckCircle2, Plus, LogOut,
   LayoutDashboard, Settings, Wallet, Stethoscope, ShieldCheck, UserPlus,
-  Trash2, Search, Clock, XCircle, RefreshCw, Filter, Users, ChevronRight,
-  AlertCircle, MessageCircle, Archive, Edit, Send, BarChart3, FileText, Activity, History
+  Trash2, Search, Clock, XCircle, RefreshCw, Filter, Users,
+  AlertCircle, MessageSquare, Edit2, Archive, Activity, FileText,
+  History, BarChart3, ChevronDown, Bell
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -16,13 +17,17 @@ import { cn } from './lib/utils';
 // @ts-ignore
 const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY });
 
-// --- Types ---
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
 type Role = 'admin' | 'medico' | 'patient';
 type ApptStatus = 'PENDING' | 'PAID' | 'CANCELLED' | 'COMPLETED';
+type Urgency = 'BAJA' | 'MEDIA' | 'ALTA';
 
 interface UserProfile {
   id: string; name: string; username?: string; dni?: string;
   role: Role; password?: string; phone?: string; email?: string;
+  specialization?: string; restDays?: string[];
 }
 
 interface Appointment {
@@ -30,13 +35,14 @@ interface Appointment {
   time: string; service: string; paymentMethod?: 'YAPE' | 'PLIN' | 'CARD';
   paymentStatus: 'PENDING' | 'PAID'; status: ApptStatus; amount: number;
   reference?: string; userId: string; cancelReason?: string;
-  medicoId?: string; medicoNameAttended?: string; urgency?: 'BAJA' | 'MEDIA' | 'ALTA';
+  medicoId?: string; medicoName?: string; urgency?: Urgency;
   specialization?: string; symptoms?: string; notes?: string;
 }
 
 interface DoctorSchedule {
   id: string; medicoId: string; medicoName: string; day: string;
-  startTime: string; endTime: string; type: 'DISPONIBLE' | 'DESCANSO'; specialty?: string;
+  startTime: string; endTime: string; type: 'DISPONIBLE' | 'DESCANSO';
+  specialty?: string;
 }
 
 interface SupportMessage {
@@ -44,7 +50,15 @@ interface SupportMessage {
   date: string; reply?: string; isRead: boolean;
 }
 
+// ─────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0];
+const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
 const SPECIALIZATION_PRICES: Record<string, number> = {
   'Cardiología': 120.00, 'Traumatología': 100.00, 'Pediatría': 80.00,
   'Dermatología': 90.00, 'Medicina General': 50.00, 'Neurología': 130.00,
@@ -52,28 +66,44 @@ const SPECIALIZATION_PRICES: Record<string, number> = {
 };
 const DEFAULT_PRICE = 50.00;
 
-// --- Subcomponents ---
-const Badge = ({ children, status }: { children: React.ReactNode, status: ApptStatus | string }) => {
-  const styles: Record<string, string> = {
-    PENDING: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-    PAID: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-    CANCELLED: "bg-red-500/10 text-red-500 border-red-500/20",
-    COMPLETED: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-    ALTA: "bg-red-500/10 text-red-500 border-red-500/20 font-black",
-    MEDIA: "bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold",
-    BAJA: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-  };
-  return <span className={cn("px-2.5 py-1 rounded-md text-[9px] uppercase tracking-widest border", styles[status] || "bg-gray-500/10 text-gray-500 border-gray-500/20")}>{children}</span>;
+// Demo appointments: 2 ALTA, 2 MEDIA, 2 BAJA
+const DEMO_APPOINTMENTS: Appointment[] = [
+  { id: 'a1', patientName: 'CARLOS MENDOZA', patientDni: '11223344', date: today, time: '08:30', service: 'Cardiología', paymentStatus: 'PENDING', status: 'PENDING', amount: 120, userId: 'p1', urgency: 'ALTA', symptoms: 'Dolor intenso en el pecho y dificultad para respirar.' },
+  { id: 'a2', patientName: 'ANA TORRES', patientDni: '22334455', date: today, time: '09:00', service: 'Neurología', paymentStatus: 'PAID', status: 'PAID', amount: 130, userId: 'p2', urgency: 'ALTA', symptoms: 'Pérdida repentina de visión y mareos severos.', paymentMethod: 'YAPE', reference: 'TRX-9981' },
+  { id: 'a3', patientName: 'ROBERTO SILVA', patientDni: '33445566', date: today, time: '10:00', service: 'Traumatología', paymentStatus: 'PENDING', status: 'PENDING', amount: 100, userId: 'p3', urgency: 'MEDIA', symptoms: 'Fractura probable en tobillo derecho luego de caída.' },
+  { id: 'a4', patientName: 'LUCIA VARGAS', patientDni: '44556677', date: tomorrow, time: '11:30', service: 'Ginecología', paymentStatus: 'PAID', status: 'PAID', amount: 110, userId: 'p4', urgency: 'MEDIA', symptoms: 'Control prenatal mes 6.', paymentMethod: 'PLIN', reference: 'PLN-1234' },
+  { id: 'a5', patientName: 'PEDRO RAMIREZ', patientDni: '55667788', date: tomorrow, time: '14:00', service: 'Dermatología', paymentStatus: 'PENDING', status: 'PENDING', amount: 90, userId: 'p5', urgency: 'BAJA', symptoms: 'Manchas leves en el antebrazo sin dolor.' },
+  { id: 'a6', patientName: 'SOFIA CASTRO', patientDni: '66778899', date: tomorrow, time: '15:30', service: 'Pediatría', paymentStatus: 'PENDING', status: 'PENDING', amount: 80, userId: 'p6', urgency: 'BAJA', symptoms: 'Control de niño sano, vacunas al día.' },
+];
+
+const DEMO_USERS: UserProfile[] = [
+  { id: 'admin-1', name: 'ADMINISTRADOR', username: 'usuario', password: '123456', role: 'admin' },
+  { id: 'medico-1', name: 'DR. CARDOZA', username: 'medico', password: '123456', role: 'medico', specialization: 'Cardiología', restDays: ['Domingo'] },
+  { id: 'p1', name: 'CARLOS MENDOZA', dni: '11223344', role: 'patient' },
+  { id: 'p2', name: 'ANA TORRES', dni: '22334455', role: 'patient' },
+  { id: 'p3', name: 'ROBERTO SILVA', dni: '33445566', role: 'patient' },
+  { id: 'p4', name: 'LUCIA VARGAS', dni: '44556677', role: 'patient' },
+  { id: 'p5', name: 'PEDRO RAMIREZ', dni: '55667788', role: 'patient' },
+  { id: 'p6', name: 'SOFIA CASTRO', dni: '66778899', role: 'patient' },
+];
+
+// ─────────────────────────────────────────────────────────────
+// SHARED COMPONENTS
+// ─────────────────────────────────────────────────────────────
+const UrgencyBadge = ({ u }: { u?: Urgency }) => {
+  if (!u) return null;
+  const s = { ALTA: 'bg-red-500/10 text-red-400 border-red-500/20', MEDIA: 'bg-amber-500/10 text-amber-400 border-amber-500/20', BAJA: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
+  return <span className={cn('px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border', s[u])}>{u}</span>;
 };
 
-const InputGroup = ({ label, ...props }: any) => (
-  <div className="space-y-2">
-    <label className="text-[10px] text-gray-400 uppercase font-black tracking-widest flex items-center gap-2">{label}</label>
-    <input className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-xl text-white outline-none focus:border-emerald-500/50 transition-colors text-sm shadow-inner" {...props} />
-  </div>
-);
+const StatusBadge = ({ s }: { s: ApptStatus }) => {
+  const styles = { PENDING: 'bg-amber-500/10 text-amber-400 border-amber-500/20', PAID: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', CANCELLED: 'bg-red-500/10 text-red-400 border-red-500/20', COMPLETED: 'bg-blue-500/10 text-blue-400 border-blue-500/20' };
+  return <span className={cn('px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border', styles[s])}>{s}</span>;
+};
 
-// --- Main App ---
+// ─────────────────────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────────────────────
 export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -82,205 +112,242 @@ export default function App() {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [currentView, setCurrentView] = useState<string>('dashboard');
+  const [currentView, setCurrentView] = useState('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [filterStatus, setFilterStatus] = useState('ALL');
+  const [isDarkMode] = useState(true);
 
   // Modals
-  const [showPaymentDialog, setShowPaymentDialog] = useState<Appointment | null>(null);
-  const [showCancelDialog, setShowCancelDialog] = useState<Appointment | null>(null);
-  const [showReprogramDialog, setShowReprogramDialog] = useState<Appointment | null>(null);
-  const [showRecipeDialog, setShowRecipeDialog] = useState<Appointment | null>(null);
-  const [showCompleteDialog, setShowCompleteDialog] = useState<Appointment | null>(null);
-  const [showVoucherDialog, setShowVoucherDialog] = useState<Appointment | null>(null);
-  const [showCreateUserDialog, setShowCreateUserDialog] = useState(false);
-  const [showCreateApptDialog, setShowCreateApptDialog] = useState(false);
-  const [showScheduleForm, setShowScheduleForm] = useState(false);
-  const [showExternalSupport, setShowExternalSupport] = useState(false);
+  const [payDlg, setPayDlg] = useState<Appointment | null>(null);
+  const [cancelDlg, setCancelDlg] = useState<Appointment | null>(null);
+  const [reprogramDlg, setReprogramDlg] = useState<Appointment | null>(null);
+  const [recipeDlg, setRecipeDlg] = useState<Appointment | null>(null);
+  const [completeDlg, setCompleteDlg] = useState<Appointment | null>(null);
+  const [voucherDlg, setVoucherDlg] = useState<Appointment | null>(null);
+  const [createUserDlg, setCreateUserDlg] = useState(false);
+  const [createApptDlg, setCreateApptDlg] = useState(false);
+  const [scheduleDlg, setScheduleDlg] = useState(false);
+  const [editUserDlg, setEditUserDlg] = useState<UserProfile | null>(null);
+  const [extSupportDlg, setExtSupportDlg] = useState(false);
 
   // Auth
   const [authTab, setAuthTab] = useState<Role>('admin');
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
-  const [formPatientName, setFormPatientName] = useState('');
-  const [formPatientDni, setFormPatientDni] = useState('');
+  const [formName, setFormName] = useState('');
+  const [formDni, setFormDni] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // INIT
+  // ── INIT ──
   useEffect(() => {
-    const savedProfile = sessionStorage.getItem('clinica_profile');
-    const savedUsers = localStorage.getItem('clinica_users');
-    const savedAppts = localStorage.getItem('clinica_appointments');
+    const savedProfile = sessionStorage.getItem('mg_profile');
+    const savedUsers = localStorage.getItem('mg_users');
+    const savedAppts = localStorage.getItem('mg_appts');
+    const savedSched = localStorage.getItem('mg_schedules');
+    const savedMsgs = localStorage.getItem('mg_messages');
 
     if (savedProfile) {
       const p = JSON.parse(savedProfile);
       setProfile(p);
       setCurrentView(p.role === 'patient' ? 'citas' : 'dashboard');
     }
-
-    if (savedUsers) setUsers(JSON.parse(savedUsers));
-    else {
-      setUsers([
-        { id: 'admin-1', name: 'ADMINISTRADOR', username: 'usuario', password: '123456', role: 'admin' },
-        { id: 'medico-1', name: 'DR. CARDOZA', username: 'medico', password: '123456', role: 'medico' },
-        { id: 'p-1', name: 'JUAN PEREZ', dni: '77665544', role: 'patient' }
-      ]);
-    }
-
-    if (savedAppts) setAppointments(JSON.parse(savedAppts));
-    setSchedules(JSON.parse(localStorage.getItem('clinica_schedules') || '[]'));
-    setMessages(JSON.parse(localStorage.getItem('clinica_messages') || '[]'));
+    setUsers(savedUsers ? JSON.parse(savedUsers) : DEMO_USERS);
+    setAppointments(savedAppts ? JSON.parse(savedAppts) : DEMO_APPOINTMENTS);
+    setSchedules(savedSched ? JSON.parse(savedSched) : []);
+    setMessages(savedMsgs ? JSON.parse(savedMsgs) : []);
     setLoading(false);
   }, []);
 
-  // PERSISTENCE
+  // ── PERSIST ──
   useEffect(() => {
-    if (!loading) {
-      localStorage.setItem('clinica_users', JSON.stringify(users));
-      localStorage.setItem('clinica_appointments', JSON.stringify(appointments));
-      localStorage.setItem('clinica_schedules', JSON.stringify(schedules));
-      localStorage.setItem('clinica_messages', JSON.stringify(messages));
-    }
+    if (loading) return;
+    localStorage.setItem('mg_users', JSON.stringify(users));
+    localStorage.setItem('mg_appts', JSON.stringify(appointments));
+    localStorage.setItem('mg_schedules', JSON.stringify(schedules));
+    localStorage.setItem('mg_messages', JSON.stringify(messages));
   }, [users, appointments, schedules, messages, loading]);
 
-  const handleLogout = () => {
-    setProfile(null);
-    sessionStorage.removeItem('clinica_profile');
-  };
-
+  // ── AUTH ──
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    let user;
+    setAuthError('');
     if (authTab === 'patient') {
-      const inputName = formPatientName.toUpperCase().trim();
-      const inputDni = formPatientDni.trim();
-      const existingUser = users.find(u => u.dni === inputDni && u.role === 'patient');
-      if (existingUser) {
-        if (existingUser.name.toUpperCase() !== inputName) { setAuthError('El Nombre no coincide con el Documento registrado.'); return; }
-        user = existingUser;
+      const dniClean = formDni.trim();
+      const namClean = formName.trim().toUpperCase();
+      if (dniClean.length < 8 || dniClean.length > 15) { setAuthError('DNI debe tener 8 dígitos. CE entre 9 y 15.'); return; }
+      const existing = users.find(u => u.role === 'patient' && u.dni === dniClean);
+      if (existing) {
+        if (existing.name.toUpperCase() !== namClean) { setAuthError('El nombre no coincide con el DNI/CE registrado.'); return; }
+        doLogin(existing);
       } else {
-        if (!inputName || !inputDni) { setAuthError('Completa todos los campos.'); return; }
-        const newPatient: UserProfile = { id: Math.random().toString(36).substr(2, 9), name: inputName, dni: inputDni, role: 'patient' };
-        setUsers(prev => [...prev, newPatient]);
-        user = newPatient;
+        if (!namClean) { setAuthError('Ingresa tu nombre completo.'); return; }
+        const np: UserProfile = { id: `p${Date.now()}`, name: namClean, dni: dniClean, role: 'patient' };
+        setUsers(prev => [...prev, np]);
+        doLogin(np);
       }
     } else {
-      user = users.find(u => u.role === authTab && u.username === formUsername && u.password === formPassword);
-    }
-    if (user) {
-      setProfile(user);
-      setCurrentView(user.role === 'patient' ? 'citas' : 'dashboard');
-      sessionStorage.setItem('clinica_profile', JSON.stringify(user));
-      setAuthError('');
-    } else {
-      setAuthError('Credenciales incorrectas o usuario no encontrado.');
+      const u = users.find(u => u.role === authTab && u.username === formUsername && u.password === formPassword);
+      if (u) doLogin(u); else setAuthError('Credenciales incorrectas.');
     }
   };
+  const doLogin = (u: UserProfile) => {
+    setProfile(u);
+    setCurrentView(u.role === 'patient' ? 'citas' : 'dashboard');
+    sessionStorage.setItem('mg_profile', JSON.stringify(u));
+  };
+  const handleLogout = () => { setProfile(null); sessionStorage.removeItem('mg_profile'); };
 
+  // ── APPOINTMENT ACTIONS ──
   const createAppointment = (data: any, payNow: boolean) => {
-    const price = SPECIALIZATION_PRICES[data.specialization] || SPECIALIZATION_PRICES[data.service] || DEFAULT_PRICE;
-    const newAppt: Appointment = { id: Math.random().toString(36).substr(2, 9), patientName: data.name, patientDni: data.dni, date: data.date, time: data.time, service: data.service, paymentStatus: "PENDING", status: "PENDING", amount: price, userId: data.userId || profile?.id || 'guest', medicoId: data.medicoId, urgency: data.urgency, specialization: data.specialization, symptoms: data.symptoms };
-    setAppointments([newAppt, ...appointments]);
-    setShowCreateApptDialog(false);
-    if (payNow) setShowPaymentDialog(newAppt);
+    const price = SPECIALIZATION_PRICES[data.service] || DEFAULT_PRICE;
+    const na: Appointment = { id: `a${Date.now()}`, patientName: data.name, patientDni: data.dni, date: data.date, time: data.time, service: data.service, paymentStatus: 'PENDING', status: 'PENDING', amount: price, userId: profile?.id || 'guest', urgency: data.urgency, symptoms: data.symptoms };
+    setAppointments(p => [na, ...p]);
+    setCreateApptDlg(false);
+    if (payNow) setPayDlg(na);
   };
-
   const processPayment = (id: string, method: 'YAPE' | 'PLIN' | 'CARD', ref: string) => {
-    setAppointments(appointments.map(a => a.id === id ? { ...a, paymentStatus: 'PAID', paymentMethod: method, reference: ref, status: 'PAID' } : a));
-    setShowPaymentDialog(null);
+    setAppointments(p => p.map(a => a.id === id ? { ...a, paymentStatus: 'PAID', paymentMethod: method, reference: ref, status: 'PAID' } : a));
+    setPayDlg(null);
   };
-
   const cancelAppointment = (id: string, reason: string) => {
-    setAppointments(appointments.map(a => a.id === id ? { ...a, status: 'CANCELLED', cancelReason: reason } : a));
-    setShowCancelDialog(null);
+    setAppointments(p => p.map(a => a.id === id ? { ...a, status: 'CANCELLED', cancelReason: reason } : a));
+    setCancelDlg(null);
   };
-
-  const reprogramAppointment = (id: string, d: string, t: string) => {
-    setAppointments(appointments.map(a => a.id === id ? { ...a, date: d, time: t } : a));
-    setShowReprogramDialog(null);
+  const reprogramAppointment = (id: string, date: string, time: string) => {
+    setAppointments(p => p.map(a => a.id === id ? { ...a, date, time } : a));
+    setReprogramDlg(null);
   };
-
   const completeAppointment = (id: string, medicoName: string) => {
-    setAppointments(appointments.map(a => a.id === id ? { ...a, status: 'COMPLETED', medicoNameAttended: medicoName } : a));
-    setShowCompleteDialog(null);
+    setAppointments(p => p.map(a => a.id === id ? { ...a, status: 'COMPLETED', medicoName } : a));
+    setCompleteDlg(null);
+  };
+  const deleteAppointment = (id: string) => setAppointments(p => p.filter(a => a.id !== id));
+  const saveRecipe = (id: string, notes: string) => {
+    setAppointments(p => p.map(a => a.id === id ? { ...a, notes } : a));
+    setRecipeDlg(null);
   };
 
-  const activeAppointments = profile?.role !== 'patient' ? appointments.filter(a => a.status !== 'CANCELLED' && a.status !== 'COMPLETED') : appointments;
+  // ── USER ACTIONS ──
+  const createUser = (data: any) => {
+    setUsers(p => [...p, { id: `u${Date.now()}`, ...data, name: data.name.toUpperCase() }]);
+    setCreateUserDlg(false);
+  };
+  const editUser = (data: Partial<UserProfile>) => {
+    if (!editUserDlg) return;
+    const updated = { ...editUserDlg, ...data };
+    setUsers(p => p.map(u => u.id === editUserDlg.id ? updated : u));
+    if (profile?.id === editUserDlg.id) { setProfile(updated); sessionStorage.setItem('mg_profile', JSON.stringify(updated)); }
+    setEditUserDlg(null);
+  };
+  const deleteUser = (id: string) => { if (id === 'admin-1') return; setUsers(p => p.filter(u => u.id !== id)); };
 
-  const filteredAppointments = activeAppointments.filter(a => {
-    const matchesSearch = a.patientName.toLowerCase().includes(searchTerm.toLowerCase()) || a.patientDni.includes(searchTerm);
-    const matchesRole = profile?.role === 'patient' ? a.userId === profile.id : true;
-    let matchesStatus = true;
-    if (filterStatus === 'TODAY') matchesStatus = a.date === today;
-    else if (['PENDING', 'PAID', 'COMPLETED', 'CANCELLED'].includes(filterStatus)) matchesStatus = a.status === filterStatus;
-    else if (['ALTA', 'MEDIA', 'BAJA'].includes(filterStatus)) matchesStatus = a.urgency === filterStatus;
-    return matchesSearch && matchesRole && matchesStatus;
+  // ── SCHEDULE ACTIONS — Only admin can delete ──
+  const addSchedule = (data: any) => {
+    const news = data.days.map((day: string) => ({ id: `s${Date.now()}${day}`, medicoId: profile?.id, medicoName: profile?.name, day, startTime: data.startTime, endTime: data.endTime, type: data.type, specialty: data.specialty }));
+    setSchedules(p => [...p, ...news]);
+    setScheduleDlg(false);
+  };
+  // Only admin can delete schedules — medico CANNOT
+  const deleteSchedule = (id: string) => { if (profile?.role !== 'admin') return; setSchedules(p => p.filter(s => s.id !== id)); };
+
+  // ── MESSAGES ──
+  const sendMessage = (d: any) => {
+    setMessages(p => [{ id: `m${Date.now()}`, senderName: d.name, senderDni: d.dni, content: d.content, date: new Date().toISOString(), isRead: false }, ...p]);
+  };
+  const replyMessage = (id: string, reply: string) => {
+    setMessages(p => p.map(m => m.id === id ? { ...m, reply, isRead: true } : m));
+  };
+
+  // ── FILTERS ──
+  const activeAppts = appointments.filter(a => a.status !== 'CANCELLED' && a.status !== 'COMPLETED');
+  const myAppts = profile?.role === 'patient' ? appointments.filter(a => a.userId === profile.id) : activeAppts;
+  const sortedAppts = [...myAppts].sort((a, b) => {
+    const w = { ALTA: 3, MEDIA: 2, BAJA: 1 };
+    return (w[b.urgency || 'BAJA'] || 0) - (w[a.urgency || 'BAJA'] || 0);
+  });
+  const filteredAppts = sortedAppts.filter(a => {
+    const ms = a.patientName.toLowerCase().includes(searchTerm.toLowerCase()) || a.patientDni.includes(searchTerm);
+    if (filterStatus === 'ALL') return ms;
+    if (filterStatus === 'TODAY') return ms && a.date === today;
+    if (['PENDING', 'PAID'].includes(filterStatus)) return ms && a.status === filterStatus;
+    if (['ALTA', 'MEDIA', 'BAJA'].includes(filterStatus)) return ms && a.urgency === filterStatus;
+    return ms;
   });
 
-  const sortedAppointments = [...filteredAppointments].sort((a, b) => {
-    const urgWeights: Record<string, number> = { 'ALTA': 3, 'MEDIA': 2, 'BAJA': 1 };
-    return (urgWeights[b.urgency || 'BAJA'] || 0) - (urgWeights[a.urgency || 'BAJA'] || 0);
-  });
+  const unreadMsgs = messages.filter(m => !m.isRead).length;
 
   if (loading) return null;
 
+  // ─────────────────────────────────────────────────────────
+  // LOGIN
+  // ─────────────────────────────────────────────────────────
   if (!profile) {
     return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-[440px]">
+      <div className="min-h-screen bg-[#060606] flex items-center justify-center p-4 font-sans">
+        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-[420px]">
+          {/* Logo */}
           <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.1)]"><Activity className="text-emerald-500" size={36} /></div>
-            <h1 className="text-4xl font-black text-white italic tracking-tighter">MEDIAGENDAK</h1>
-            <p className="text-gray-500 text-[10px] uppercase tracking-[0.3em] font-black mt-2">Plataforma Empresarial</p>
+            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_0_40px_rgba(16,185,129,0.12)]">
+              <Activity className="text-emerald-500" size={28} />
+            </div>
+            <h1 className="text-[2.8rem] font-black text-white italic tracking-tighter leading-none">MEDIAGENDAK</h1>
+            <p className="text-gray-600 text-[9px] uppercase tracking-[0.4em] font-black mt-2">Sistema de Gestión Médica</p>
           </div>
-          <div className="bg-[#141414] border border-white/5 rounded-[32px] overflow-hidden shadow-2xl">
-            <div className="flex border-b border-white/5 bg-white/[0.02]">
-              {(['admin', 'medico', 'patient'] as Role[]).map(role => (
-                <button key={role} onClick={() => { setAuthTab(role); setAuthError(''); }} className={cn("flex-1 py-5 text-[10px] font-black tracking-widest uppercase relative transition-colors", authTab === role ? "text-white" : "text-gray-600 hover:text-gray-400")}>
-                  {role === 'admin' ? 'Gestión' : role === 'medico' ? 'Personal' : 'Pacientes'}
-                  {authTab === role && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 shadow-[0_0_10px_#10b981]" />}
+
+          <div className="bg-[#111] border border-white/5 rounded-[28px] overflow-hidden shadow-2xl">
+            {/* Tabs */}
+            <div className="flex border-b border-white/5">
+              {(['admin', 'medico', 'patient'] as Role[]).map(r => (
+                <button key={r} onClick={() => { setAuthTab(r); setAuthError(''); }}
+                  className={cn('flex-1 py-4 text-[9px] font-black tracking-[0.2em] uppercase relative transition-colors', authTab === r ? 'text-white' : 'text-gray-600 hover:text-gray-400')}>
+                  {r === 'admin' ? 'Gestión' : r === 'medico' ? 'Personal' : 'Paciente'}
+                  {authTab === r && <motion.div layoutId="auth-tab" className="absolute bottom-0 left-0 right-0 h-[2px] bg-emerald-500" />}
                 </button>
               ))}
             </div>
-            <form className="p-8 space-y-6" onSubmit={handleLogin}>
+
+            <form className="p-8 space-y-4" onSubmit={handleLogin}>
               {authTab === 'patient' ? (
                 <>
-                  <InputGroup label="Nombre y Apellidos" type="text" value={formPatientName} onChange={(e: any) => setFormPatientName(e.target.value)} placeholder="Ej. Juan Pérez" />
-                  <InputGroup label="Documento de Identidad" type="text" maxLength={15} value={formPatientDni} onChange={(e: any) => setFormPatientDni(e.target.value)} placeholder="DNI, CE o Pasaporte" />
+                  <Field label="Nombre y Apellido" type="text" value={formName} onChange={(e: any) => setFormName(e.target.value)} placeholder="Juan Pérez" />
+                  <Field label="DNI (8) o CE (9–15 dígitos)" type="text" maxLength={15} value={formDni} onChange={(e: any) => setFormDni(e.target.value)} placeholder="77665544" />
                 </>
               ) : (
                 <>
-                  <InputGroup label="Usuario Corporativo" type="text" value={formUsername} onChange={(e: any) => setFormUsername(e.target.value)} placeholder="ID de Empleado" />
-                  <InputGroup label="Contraseña" type="password" value={formPassword} onChange={(e: any) => setFormPassword(e.target.value)} placeholder="••••••••" />
+                  <Field label="Usuario" type="text" value={formUsername} onChange={(e: any) => setFormUsername(e.target.value)} placeholder="usuario" />
+                  <Field label="Contraseña" type="password" value={formPassword} onChange={(e: any) => setFormPassword(e.target.value)} placeholder="••••••••" />
                 </>
               )}
-              {authError && <p className="text-red-400 text-[10px] bg-red-500/10 border border-red-500/20 p-3 rounded-xl font-bold text-center flex justify-center items-center gap-2"><AlertCircle size={14} /> {authError}</p>}
-              <button type="submit" className="w-full bg-emerald-500 text-black font-black py-4 rounded-xl uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Ingresar a la Plataforma</button>
-
-              {authTab === 'patient' && <button type="button" onClick={() => setShowExternalSupport(true)} className="w-full text-[10px] text-gray-500 uppercase tracking-widest hover:text-white transition-colors pt-2">¿Problemas de acceso? Soporte ATC</button>}
+              {authError && (
+                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                  <AlertCircle size={14} className="text-red-400 shrink-0" />
+                  <p className="text-red-400 text-[10px] font-bold">{authError}</p>
+                </div>
+              )}
+              <button type="submit" className="w-full bg-emerald-500 text-black font-black py-4 rounded-2xl uppercase tracking-[0.15em] text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+                {authTab === 'patient' ? 'Ingreso Libre' : 'Acceder al Sistema'}
+              </button>
+              {authTab === 'patient' && (
+                <button type="button" onClick={() => setExtSupportDlg(true)} className="w-full text-[9px] text-gray-600 hover:text-gray-400 uppercase tracking-widest transition-colors pt-1">
+                  ¿Problemas de acceso? → Soporte ATC
+                </button>
+              )}
             </form>
+
+            <div className="px-8 pb-6 text-center border-t border-white/5 pt-4">
+              {authTab === 'patient' ? (
+                <a href="mailto:kelcardozabr@uch.pe" className="text-emerald-500 text-[10px] font-bold hover:underline">kelcardozabr@uch.pe</a>
+              ) : (
+                <p className="text-gray-600 text-[9px] uppercase tracking-widest">Solo personal autorizado</p>
+              )}
+            </div>
           </div>
         </motion.div>
 
-        {/* Modal Soporte Externo */}
         <AnimatePresence>
-          {showExternalSupport && (
-            <Modal title="Soporte Técnico ATC" onClose={() => setShowExternalSupport(false)}>
-              <div className="space-y-6">
-                <p className="text-xs text-gray-400">Si presentas errores para ingresar, envíanos tu caso detallado.</p>
-                <InputGroup id="atc-name" label="Nombre Completo" placeholder="Ej. Ana García" />
-                <InputGroup id="atc-dni" label="DNI Registrado" placeholder="Número de documento" />
-                <div className="space-y-2">
-                  <label className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Detalle del Error</label>
-                  <textarea id="atc-msg" placeholder="Describe qué problema presentas..." className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-xl text-white outline-none h-28 resize-none text-sm focus:border-emerald-500/50 shadow-inner" />
-                </div>
-                <button onClick={() => {
-                  const n = (document.getElementById('atc-name') as HTMLInputElement).value;
-                  const d = (document.getElementById('atc-dni') as HTMLInputElement).value;
-                  const m = (document.getElementById('atc-msg') as HTMLInputElement).value;
-                  if (n && d && m) { setMessages([{ id: Math.random().toString(), senderName: n, senderDni: d, content: m, date: new Date().toISOString(), isRead: false }, ...messages]); setShowExternalSupport(false); }
-                }} className="w-full bg-emerald-500 text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Enviar Reclamo a Sistemas</button>
-              </div>
+          {extSupportDlg && (
+            <Modal title="Soporte ATC — Acceso Externo" onClose={() => setExtSupportDlg(false)}>
+              <ExternalSupportForm onSend={(d: any) => { sendMessage(d); setExtSupportDlg(false); }} />
             </Modal>
           )}
         </AnimatePresence>
@@ -288,186 +355,328 @@ export default function App() {
     );
   }
 
+  // ─────────────────────────────────────────────────────────
+  // MAIN LAYOUT
+  // ─────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex bg-[#050505] text-gray-300 font-sans selection:bg-emerald-500/30">
-      <aside className="w-[280px] border-r border-white/5 bg-[#0a0a0a] flex flex-col hidden lg:flex relative z-20">
-        <div className="p-8">
-          <div className="flex items-center gap-3 mb-10 text-emerald-500"><div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center border border-emerald-500/20"><Activity size={20} /></div><div><span className="font-black text-xl italic text-white tracking-tight block leading-none">MEDIAGENDAK</span><span className="text-[8px] uppercase tracking-widest font-black text-emerald-500">Pro System</span></div></div>
-          <nav className="space-y-2">
-            {profile.role === 'patient' ? (
-              <>
-                <NavBtn id="citas" icon={<Calendar size={18} />} label="Mis Citas Activas" currentView={currentView} setView={setCurrentView} />
-                <NavBtn id="historial-paciente" icon={<History size={18} />} label="Mi Historial Clínico" currentView={currentView} setView={setCurrentView} />
-                <NavBtn id="pagos" icon={<CreditCard size={18} />} label="Finanzas y Vouchers" currentView={currentView} setView={setCurrentView} />
-                <NavBtn id="mensajes" icon={<MessageCircle size={18} />} label="Soporte ATC" currentView={currentView} setView={setCurrentView} />
-                <div className="h-px bg-white/5 my-4 mx-2"></div>
-                <NavBtn id="informacion" icon={<UserIcon size={18} />} label="Ajustes de Perfil" currentView={currentView} setView={setCurrentView} />
-              </>
-            ) : (
-              <>
-                <NavBtn id="dashboard" icon={<LayoutDashboard size={18} />} label="Dashboard" currentView={currentView} setView={setCurrentView} />
-                <NavBtn id="citas" icon={<Activity size={18} />} label="Citas Activas" currentView={currentView} setView={setCurrentView} />
-                <div className="h-px bg-white/5 my-4 mx-2"></div>
-                {profile.role === 'admin' && (
-                  <>
-                    <NavBtn id="historial" icon={<Archive size={18} />} label="Historial Global BD" currentView={currentView} setView={setCurrentView} />
-                    <NavBtn id="horarios" icon={<Clock size={18} />} label="Gestión de Horarios" currentView={currentView} setView={setCurrentView} />
-                    <NavBtn id="usuarios" icon={<Users size={18} />} label="Directorio Usuarios" currentView={currentView} setView={setCurrentView} />
-                    <NavBtn id="atc" icon={<MessageCircle size={18} />} label="Reclamos ATC" currentView={currentView} setView={setCurrentView} />
-                  </>
-                )}
-                {profile.role === 'medico' && <NavBtn id="horarios" icon={<Clock size={18} />} label="Mi Horario Médico" currentView={currentView} setView={setCurrentView} />}
-              </>
-            )}
+    <div className="min-h-screen flex bg-[#060606] text-gray-300 font-sans">
+      {/* ── Sidebar ── */}
+      <aside className="w-[260px] border-r border-white/5 bg-[#0a0a0a] flex flex-col shrink-0 hidden lg:flex">
+        <div className="p-7">
+          {/* Logo */}
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
+              <Activity size={18} className="text-black" />
+            </div>
+            <div>
+              <span className="font-black text-lg italic text-white tracking-tight block leading-none">MEDIAGENDAK</span>
+              <span className="text-[8px] text-emerald-500 font-black uppercase tracking-widest">Pro</span>
+            </div>
+          </div>
+          {/* Nav */}
+          <nav className="space-y-1">
+            {profile.role === 'patient' && <>
+              <SideItem id="citas" icon={<Calendar size={16} />} label="Mis Citas" view={currentView} setView={setCurrentView} />
+              <SideItem id="historial-paciente" icon={<History size={16} />} label="Mi Historial" view={currentView} setView={setCurrentView} />
+              <SideItem id="pagos" icon={<CreditCard size={16} />} label="Pagos y Vouchers" view={currentView} setView={setCurrentView} />
+              <SideItem id="mensajes" icon={<MessageSquare size={16} />} label="Soporte ATC" view={currentView} setView={setCurrentView} />
+              <div className="h-px bg-white/5 my-3" />
+              <SideItem id="informacion" icon={<UserIcon size={16} />} label="Mi Perfil" view={currentView} setView={setCurrentView} />
+            </>}
+            {profile.role !== 'patient' && <>
+              <SideItem id="dashboard" icon={<LayoutDashboard size={16} />} label="Dashboard" view={currentView} setView={setCurrentView} />
+              <SideItem id="citas" icon={<Activity size={16} />} label="Citas Activas" view={currentView} setView={setCurrentView} />
+              <div className="h-px bg-white/5 my-3" />
+              {profile.role === 'admin' && <>
+                <SideItem id="historial" icon={<Archive size={16} />} label="Historial Global" view={currentView} setView={setCurrentView} />
+                <SideItem id="usuarios" icon={<Users size={16} />} label="Usuarios" view={currentView} setView={setCurrentView} />
+                <SideItem id="horarios" icon={<Clock size={16} />} label="Horarios" view={currentView} setView={setCurrentView} />
+                <SideItem id="atc" icon={<MessageSquare size={16} />} label={`ATC ${unreadMsgs > 0 ? `(${unreadMsgs})` : ''}`} view={currentView} setView={setCurrentView} badge={unreadMsgs} />
+              </>}
+              {profile.role === 'medico' && <>
+                <SideItem id="horarios" icon={<Clock size={16} />} label="Mi Horario" view={currentView} setView={setCurrentView} />
+              </>}
+            </>}
           </nav>
         </div>
+
+        {/* User Info */}
         <div className="mt-auto p-6 border-t border-white/5">
-          <div className="flex items-center gap-3 mb-6 bg-white/[0.02] border border-white/5 p-3 rounded-2xl"><div className="w-10 h-10 bg-emerald-500/20 text-emerald-500 rounded-xl flex justify-center items-center font-black">{profile.name.charAt(0)}</div><div className="flex-1 min-w-0"><p className="text-xs font-bold text-white uppercase truncate">{profile.name}</p><p className="text-[9px] text-gray-500 uppercase tracking-widest">{profile.role}</p></div></div>
-          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-400 text-xs font-bold py-3 bg-white/5 hover:bg-red-500/10 rounded-xl transition-colors"><LogOut size={16} /> Cerrar Sesión</button>
+          <div className="flex items-center gap-3 mb-4 p-3 bg-white/[0.03] rounded-xl border border-white/5">
+            <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400 font-black text-sm">{profile.name[0]}</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-[11px] font-bold uppercase truncate">{profile.name}</p>
+              <p className="text-gray-500 text-[9px] uppercase tracking-widest">{profile.role}</p>
+            </div>
+          </div>
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-400 text-[10px] font-bold py-2.5 bg-white/[0.03] hover:bg-red-500/10 rounded-lg border border-white/5 hover:border-red-500/20 transition-all uppercase tracking-widest">
+            <LogOut size={14} /> Cerrar Sesión
+          </button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 relative z-10">
-        <header className="h-20 border-b border-white/5 flex items-center justify-between px-8 bg-[#0a0a0a]/90 sticky top-0 z-40 backdrop-blur-xl">
-          <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white flex items-center gap-2"><LayoutDashboard size={14} className="text-emerald-500" /> {currentView.replace('-', ' ')}</h2>
-          <div className="flex items-center gap-4">
-            <span className="px-4 py-1.5 bg-white/5 rounded-lg text-[9px] font-black uppercase text-emerald-500 border border-emerald-500/20 tracking-widest">{profile.role}</span>
-            {profile.role !== 'medico' && <button onClick={() => setShowCreateApptDialog(true)} className="bg-emerald-500 text-black px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors"><Plus size={14} /> Nueva Cita</button>}
+      {/* ── Main ── */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="h-16 border-b border-white/5 bg-[#0a0a0a]/90 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-40">
+          <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-white">{currentView.replace('-', ' ')}</h2>
+          <div className="flex items-center gap-3">
+            <span className="px-3 py-1 bg-white/[0.04] rounded-lg text-[9px] font-black uppercase text-emerald-400 border border-emerald-500/20 tracking-widest">{profile.role}</span>
+            {profile.role !== 'medico' && (
+              <button onClick={() => setCreateApptDlg(true)} className="bg-emerald-500 text-black px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
+                <Plus size={13} /> Nueva Cita
+              </button>
+            )}
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          <div className="max-w-7xl mx-auto">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="max-w-7xl mx-auto space-y-0">
             {currentView === 'dashboard' && profile.role !== 'patient' && <DashboardView appointments={appointments} />}
-            {currentView === 'citas' && <CitasView profile={profile} appointments={sortedAppointments} allAppointments={appointments} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} onPay={setShowPaymentDialog} onCancel={(a: any) => setShowCancelDialog(a)} onReprogram={(a: any) => setShowReprogramDialog(a)} onComplete={(a: any) => setShowCompleteDialog(a)} onDelete={(id: string) => { setAppointments(appointments.filter(a => a.id !== id)) }} onAddRecipe={(a: any) => setShowRecipeDialog(a)} />}
-            {currentView === 'historial-paciente' && profile.role === 'patient' && <HistorialPacienteView appointments={appointments.filter(a => a.userId === profile.id && a.status === 'COMPLETED')} />}
-            {currentView === 'historial' && profile.role === 'admin' && <HistorialGlobalView appointments={appointments} onDelete={(id: string) => { setAppointments(appointments.filter(a => a.id !== id)) }} />}
-            {currentView === 'atc' && profile.role === 'admin' && <ATCAdminView messages={messages} onReply={(id: string, r: string) => setMessages(messages.map(m => m.id === id ? { ...m, reply: r, isRead: true } : m))} />}
-            {currentView === 'mensajes' && profile.role === 'patient' && <ATCPatientView profile={profile} messages={messages} onSend={(d: any) => setMessages([{ id: Math.random().toString(), senderName: d.name, senderDni: d.dni, content: d.content, date: new Date().toISOString(), isRead: false }, ...messages])} />}
-            {currentView === 'pagos' && profile.role === 'patient' && <PagosPendientesView appointments={appointments.filter(a => a.userId === profile.id)} onPay={setShowPaymentDialog} onViewVoucher={setShowVoucherDialog} />}
-            {currentView === 'informacion' && profile.role === 'patient' && <InformacionView profile={profile} onUpdate={(d: any) => { setProfile({ ...profile, ...d }); setUsers(users.map(u => u.id === profile.id ? { ...profile, ...d } : u)); }} />}
-            {currentView === 'usuarios' && profile.role === 'admin' && <UsuariosView users={users} onCreate={() => setShowCreateUserDialog(true)} onDelete={(id: string) => setUsers(users.filter(u => u.id !== id))} />}
-            {currentView === 'horarios' && <HorariosView schedules={schedules} setSchedules={setSchedules} profile={profile} onAdd={() => setShowScheduleForm(true)} />}
+            {currentView === 'citas' && (
+              <CitasView
+                profile={profile} appointments={filteredAppts}
+                searchTerm={searchTerm} setSearchTerm={setSearchTerm}
+                filterStatus={filterStatus} setFilterStatus={setFilterStatus}
+                onPay={setPayDlg} onCancel={setCancelDlg}
+                onReprogram={setReprogramDlg} onComplete={setCompleteDlg}
+                onDelete={deleteAppointment} onRecipe={setRecipeDlg}
+              />
+            )}
+            {currentView === 'historial-paciente' && profile.role === 'patient' && (
+              <HistorialPacienteView appointments={appointments.filter(a => a.userId === profile.id && a.status === 'COMPLETED')} />
+            )}
+            {currentView === 'historial' && profile.role === 'admin' && (
+              <HistorialGlobalView appointments={appointments} onDelete={deleteAppointment} />
+            )}
+            {currentView === 'usuarios' && profile.role === 'admin' && (
+              <UsuariosView users={users} onCreate={() => setCreateUserDlg(true)} onEdit={setEditUserDlg} onDelete={deleteUser} />
+            )}
+            {currentView === 'horarios' && (
+              <HorariosView schedules={schedules} profile={profile} onAdd={() => setScheduleDlg(true)} onDelete={deleteSchedule} />
+            )}
+            {currentView === 'atc' && profile.role === 'admin' && (
+              <ATCAdminView messages={messages} onReply={replyMessage} />
+            )}
+            {currentView === 'mensajes' && profile.role === 'patient' && (
+              <ATCPatientView profile={profile} messages={messages} onSend={sendMessage} />
+            )}
+            {currentView === 'pagos' && profile.role === 'patient' && (
+              <PagosView appointments={appointments.filter(a => a.userId === profile.id)} onPay={setPayDlg} onVoucher={setVoucherDlg} />
+            )}
+            {currentView === 'informacion' && profile.role === 'patient' && (
+              <InformacionView profile={profile} onUpdate={(d: any) => { const u = { ...profile, ...d }; setProfile(u); setUsers(prev => prev.map(x => x.id === profile.id ? u : x)); sessionStorage.setItem('mg_profile', JSON.stringify(u)); }} />
+            )}
           </div>
         </div>
       </main>
 
-      {/* Modals Generales */}
+      {/* ── Modals ── */}
       <AnimatePresence>
-        {showPaymentDialog && <PaymentModal appt={showPaymentDialog} onClose={() => setShowPaymentDialog(null)} onConfirm={processPayment} />}
-        {showVoucherDialog && <VoucherModal appt={showVoucherDialog} onClose={() => setShowVoucherDialog(null)} />}
-        {showCancelDialog && <CancelModal appt={showCancelDialog} onClose={() => setShowCancelDialog(null)} onConfirm={cancelAppointment} />}
-        {showReprogramDialog && <ReprogramModal appt={showReprogramDialog} onClose={() => setShowReprogramDialog(null)} onConfirm={reprogramAppointment} />}
-        {showCompleteDialog && <CompleteApptModal appt={showCompleteDialog} profile={profile!} onClose={() => setShowCompleteDialog(null)} onConfirm={completeAppointment} />}
-        {showRecipeDialog && <RecipeModal appt={showRecipeDialog} onClose={() => setShowRecipeDialog(null)} onConfirm={(id: string, n: string) => { setAppointments(appointments.map(a => a.id === id ? { ...a, notes: n } : a)); setShowRecipeDialog(null); }} />}
-        {showCreateUserDialog && <CreateUserModal onClose={() => setShowCreateUserDialog(false)} onConfirm={(d: any) => { setUsers([...users, { id: Math.random().toString(36).substr(2, 9), ...d }]); setShowCreateUserDialog(false); }} />}
-        {showCreateApptDialog && <CreateApptModal profile={profile!} schedules={schedules} onClose={() => setShowCreateApptDialog(false)} onConfirm={createAppointment} />}
-        {showScheduleForm && <ScheduleModal onClose={() => setShowScheduleForm(false)} onConfirm={(d: any) => {
-          const newSchedules = d.days.map((day: string) => ({ id: Math.random().toString(36).substr(2, 9), medicoId: profile?.id, medicoName: profile?.name, day, startTime: d.startTime, endTime: d.endTime, type: d.type, specialty: d.specialty }));
-          setSchedules([...schedules, ...newSchedules]); setShowScheduleForm(false);
-        }} />}
+        {payDlg && <PaymentModal appt={payDlg} onClose={() => setPayDlg(null)} onConfirm={processPayment} />}
+        {voucherDlg && <VoucherModal appt={voucherDlg} onClose={() => setVoucherDlg(null)} />}
+        {cancelDlg && <CancelModal appt={cancelDlg} onClose={() => setCancelDlg(null)} onConfirm={cancelAppointment} />}
+        {reprogramDlg && <ReprogramModal appt={reprogramDlg} onClose={() => setReprogramDlg(null)} onConfirm={reprogramAppointment} />}
+        {completeDlg && <CompleteModal appt={completeDlg} profile={profile} onClose={() => setCompleteDlg(null)} onConfirm={completeAppointment} />}
+        {recipeDlg && <RecipeModal appt={recipeDlg} onClose={() => setRecipeDlg(null)} onConfirm={saveRecipe} />}
+        {createUserDlg && <CreateUserModal onClose={() => setCreateUserDlg(false)} onConfirm={createUser} />}
+        {editUserDlg && <EditUserModal user={editUserDlg} onClose={() => setEditUserDlg(null)} onConfirm={editUser} />}
+        {createApptDlg && <CreateApptModal profile={profile} onClose={() => setCreateApptDlg(false)} onConfirm={createAppointment} />}
+        {scheduleDlg && <ScheduleModal onClose={() => setScheduleDlg(false)} onConfirm={addSchedule} />}
       </AnimatePresence>
     </div>
   );
 }
 
-// --- Componentes de Vista ---
+// ─────────────────────────────────────────────────────────────
+// LAYOUT HELPERS
+// ─────────────────────────────────────────────────────────────
+function SideItem({ id, icon, label, view, setView, badge }: any) {
+  const active = view === id;
+  return (
+    <button onClick={() => setView(id)}
+      className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[11px] font-bold transition-all relative', active ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' : 'text-gray-500 hover:bg-white/[0.03] hover:text-gray-300 border border-transparent')}>
+      <span className={active ? 'text-emerald-400' : 'text-gray-600'}>{icon}</span>
+      <span className="flex-1 text-left">{label}</span>
+      {badge > 0 && !active && <span className="bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">{badge}</span>}
+    </button>
+  );
+}
 
-const NavBtn = ({ id, icon, label, currentView, setView }: any) => (
-  <button onClick={() => setView(id)} className={cn("w-full flex items-center gap-4 px-5 py-4 rounded-xl font-bold text-xs transition-all relative overflow-hidden group", currentView === id ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "text-gray-500 hover:bg-white/5 hover:text-white border border-transparent")}>
-    <span className={cn("relative z-10 transition-transform group-hover:scale-110", currentView === id ? "text-emerald-400" : "")}>{icon}</span>
-    <span className="relative z-10">{label}</span>
-  </button>
-);
+function Field({ label, ...props }: any) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">{label}</label>
+      <input className="w-full bg-[#0a0a0a] border border-white/8 py-3.5 px-4 rounded-xl text-white text-sm outline-none focus:border-emerald-500/40 transition-colors" {...props} />
+    </div>
+  );
+}
 
+// ─────────────────────────────────────────────────────────────
+// VIEWS
+// ─────────────────────────────────────────────────────────────
 function DashboardView({ appointments }: any) {
+  const paid = appointments.filter((a: any) => a.paymentStatus === 'PAID');
+  const totalIncome = paid.reduce((s: number, a: any) => s + a.amount, 0);
+  const pending = appointments.filter((a: any) => a.status === 'PENDING').length;
+  const alta = appointments.filter((a: any) => a.urgency === 'ALTA' && a.status === 'PENDING').length;
+
+  const todayAppts = appointments.filter((a: any) => a.date === today && a.status !== 'CANCELLED').sort((x: any, y: any) => { const w: Record<string, number> = { ALTA: 3, MEDIA: 2, BAJA: 1 }; return (w[y.urgency] || 0) - (w[x.urgency] || 0); });
   const incomeMap: Record<string, number> = {};
-  appointments.forEach((a: any) => { if (a.paymentStatus === 'PAID') incomeMap[a.service] = (incomeMap[a.service] || 0) + a.amount; });
-  const maxIncome = Math.max(...Object.values(incomeMap) as number[], 1);
+  paid.forEach((a: any) => { incomeMap[a.service] = (incomeMap[a.service] || 0) + a.amount; });
+  const maxVal = Math.max(...Object.values(incomeMap) as number[], 1);
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="p-8 bg-[#141414] rounded-3xl border border-white/5 relative overflow-hidden"><div className="absolute top-0 right-0 p-4 opacity-10"><BarChart3 size={48} /></div><p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-2">Ingresos Verificados</p><p className="text-4xl font-black text-emerald-400">S/ {Object.values(incomeMap).reduce((a, b) => a + b, 0).toFixed(2)}</p></div>
-        <div className="p-8 bg-[#141414] rounded-3xl border border-white/5 relative overflow-hidden"><p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-2">Citas Activas (En Cola)</p><p className="text-4xl font-black text-white">{appointments.filter((a: any) => a.status === 'PENDING').length}</p></div>
-        <div className="p-8 bg-[#141414] rounded-3xl border border-red-500/20 relative overflow-hidden"><p className="text-[10px] text-red-500 uppercase font-black tracking-widest mb-2">Urgencia ALTA</p><p className="text-4xl font-black text-red-400">{appointments.filter((a: any) => a.urgency === 'ALTA' && a.status === 'PENDING').length}</p></div>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-5">
+        <StatCard label="Ingresos Verificados" value={`S/ ${totalIncome.toFixed(2)}`} color="text-emerald-400" />
+        <StatCard label="Citas Pendientes" value={pending} color="text-amber-400" />
+        <StatCard label="Urgencias ALTA" value={alta} color="text-red-400" />
       </div>
-      <div className="bg-[#141414] p-10 rounded-[32px] border border-white/5 h-96 flex flex-col">
-        <h3 className="text-sm font-black uppercase text-white tracking-widest mb-8 border-b border-white/5 pb-4 flex items-center gap-2"><Activity className="text-emerald-500" /> Análisis de Ingresos por Especialidad</h3>
-        <div className="flex-1 flex items-end gap-6 pb-4">
+
+      {/* Chart */}
+      <div className="bg-[#111] border border-white/5 rounded-2xl p-8">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.25em] text-white mb-8 flex items-center gap-2">
+          <BarChart3 size={14} className="text-emerald-500" /> Ingresos por Especialidad
+        </h3>
+        <div className="flex items-end gap-4 h-40">
           {Object.entries(incomeMap).map(([k, v]: any) => (
-            <div key={k} className="flex-1 flex flex-col justify-end items-center h-full group relative">
-              <span className="opacity-0 group-hover:opacity-100 text-[10px] text-emerald-400 font-black mb-3 absolute -top-8 transition-opacity bg-black/50 px-2 py-1 rounded border border-white/10">S/ {v}</span>
-              <div className="w-full max-w-[60px] bg-gradient-to-t from-emerald-600/30 to-emerald-400/50 rounded-t-xl transition-all border border-emerald-500/30 group-hover:border-emerald-400/60" style={{ height: `${Math.max((v / maxIncome) * 100, 5)}%` }} />
-              <span className="text-[9px] text-gray-400 uppercase font-bold mt-4 truncate w-full text-center group-hover:text-white transition-colors">{k}</span>
+            <div key={k} className="flex-1 flex flex-col items-center justify-end h-full group">
+              <span className="text-[9px] text-emerald-400 font-black mb-2 opacity-0 group-hover:opacity-100 transition-opacity">S/{v}</span>
+              <div className="w-full bg-emerald-500/20 hover:bg-emerald-500/40 rounded-t border border-emerald-500/20 transition-all" style={{ height: `${Math.max((v / maxVal) * 100, 6)}%` }} />
+              <span className="text-[8px] text-gray-500 mt-2 truncate w-full text-center">{k.split(' ')[0]}</span>
             </div>
           ))}
-          {Object.keys(incomeMap).length === 0 && <p className="text-gray-500 w-full text-center pb-10 italic text-sm">No hay ingresos registrados para analizar.</p>}
+          {Object.keys(incomeMap).length === 0 && <p className="text-gray-600 text-xs italic w-full text-center">Sin ingresos aún.</p>}
         </div>
+      </div>
+
+      {/* Today table */}
+      <div className="bg-[#111] border border-white/5 rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-white/5 flex items-center gap-2">
+          <Calendar size={13} className="text-emerald-500" />
+          <h3 className="text-[10px] font-black uppercase tracking-[0.25em] text-white">Agenda de Hoy — ordenada por Urgencia</h3>
+        </div>
+        {todayAppts.length === 0 ? (
+          <p className="text-gray-600 text-xs italic p-8 text-center">Sin citas hoy.</p>
+        ) : (
+          <Table headers={['Hora', 'Paciente', 'Servicio', 'Urgencia', 'Estado']}>
+            {todayAppts.map((a: any) => (
+              <TR key={a.id} highlight={a.urgency === 'ALTA'}>
+                <TD mono emerald>{a.time}</TD>
+                <TD bold>{a.patientName}</TD>
+                <TD muted>{a.service}</TD>
+                <TD><UrgencyBadge u={a.urgency} /></TD>
+                <TD><StatusBadge s={a.status} /></TD>
+              </TR>
+            ))}
+          </Table>
+        )}
       </div>
     </div>
   );
 }
 
-function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterStatus, setFilterStatus, onPay, onCancel, onReprogram, onComplete, onDelete, onAddRecipe }: any) {
-  const filters = [{ id: 'ALL', l: 'Todas' }, { id: 'PENDING', l: 'Sin Pagar' }, { id: 'PAID', l: 'Pagadas' }, { id: 'ALTA', l: 'Emergencias' }];
+function StatCard({ label, value, color }: any) {
   return (
-    <div className="space-y-6">
-      <div className="flex gap-4 items-center bg-[#141414] p-5 rounded-2xl border border-white/5">
-        <div className="relative w-72">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-          <input type="text" placeholder="Buscar por paciente..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-[#0a0a0a] border border-white/10 py-3 pl-10 pr-4 rounded-xl text-xs text-white outline-none focus:border-emerald-500/50 transition-colors" />
+    <div className="bg-[#111] border border-white/5 rounded-2xl p-7">
+      <p className="text-[9px] uppercase font-black tracking-[0.25em] text-gray-500 mb-3">{label}</p>
+      <p className={cn('text-3xl font-black tracking-tight', color)}>{value}</p>
+    </div>
+  );
+}
+
+function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterStatus, setFilterStatus, onPay, onCancel, onReprogram, onComplete, onDelete, onRecipe }: any) {
+  const isStaff = profile.role !== 'patient';
+  const filters = [{ id: 'ALL', l: 'Todas' }, { id: 'TODAY', l: 'Hoy' }, { id: 'PENDING', l: 'Pendientes' }, { id: 'PAID', l: 'Pagadas' }, { id: 'ALTA', l: '🔴 Alta' }, { id: 'MEDIA', l: '🟡 Media' }, { id: 'BAJA', l: '🟢 Baja' }];
+
+  return (
+    <div className="space-y-5">
+      {/* Controls */}
+      <div className="flex flex-wrap gap-3 items-center bg-[#111] border border-white/5 rounded-2xl p-4">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+          <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar paciente o DNI..."
+            className="bg-[#0a0a0a] border border-white/8 py-2.5 pl-9 pr-4 rounded-lg text-xs text-white outline-none focus:border-emerald-500/40 w-56 transition-colors" />
         </div>
-        <div className="flex gap-2">
-          {filters.map(f => <button key={f.id} onClick={() => setFilterStatus(f.id)} className={cn("px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-colors", filterStatus === f.id ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20" : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white")}>{f.l}</button>)}
+        <div className="flex gap-1.5 flex-wrap">
+          {filters.map(f => (
+            <button key={f.id} onClick={() => setFilterStatus(f.id)}
+              className={cn('px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all', filterStatus === f.id ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'bg-white/[0.04] text-gray-500 hover:bg-white/[0.07] hover:text-white')}>
+              {f.l}
+            </button>
+          ))}
         </div>
       </div>
 
-      {profile.role === 'patient' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {appointments.map((a: any) => (
-            <div key={a.id} className="bg-[#141414] p-8 rounded-[32px] border border-white/5 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-bl-[100px] transition-transform group-hover:scale-110" />
-              <div className="flex justify-between items-start mb-6 relative z-10"><h4 className="font-black text-xl text-white uppercase tracking-tight">{a.service}</h4><Badge status={a.status}>{a.status}</Badge></div>
-              <div className="space-y-3 mb-8 text-xs text-gray-400 relative z-10">
-                <p className="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/5"><Calendar size={14} className="text-emerald-500" /> {a.date} • {a.time}</p>
-                <p className={cn("flex items-center gap-2 p-2 rounded-lg border border-white/5", a.urgency === 'ALTA' ? 'bg-red-500/10 text-red-400' : 'bg-white/5')}><Activity size={14} /> Prioridad: {a.urgency}</p>
-              </div>
-
-              {a.status === 'PENDING' && (
-                <div className="space-y-3 relative z-10">
-                  <button onClick={() => onPay(a)} className="w-full bg-emerald-500 text-black font-black uppercase tracking-widest text-[10px] py-4 rounded-xl shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">Abonar S/ {a.amount}</button>
-                  <div className="flex gap-3">
-                    <button onClick={() => onReprogram(a)} className="flex-1 bg-white/5 border border-white/10 text-white font-bold uppercase tracking-widest text-[9px] py-3.5 rounded-xl hover:bg-white/10 transition-colors">Modificar</button>
-                    <button onClick={() => onCancel(a)} className="flex-1 bg-red-500/10 text-red-500 border border-red-500/20 font-bold uppercase tracking-widest text-[9px] py-3.5 rounded-xl hover:bg-red-500/20 transition-colors">Anular</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          {appointments.length === 0 && <p className="text-gray-500 italic p-12 text-center col-span-full border border-dashed border-white/10 rounded-[32px]">No tienes citas activas actualmente.</p>}
-        </div>
-      ) : (
-        <div className="bg-[#141414] border border-white/5 rounded-[32px] overflow-hidden shadow-2xl">
-          <table className="w-full text-left">
-            <thead className="bg-white/[0.02] text-[9px] uppercase font-black text-gray-500 tracking-widest border-b border-white/5"><th className="p-6">Paciente</th><th className="p-6">Horario Asignado</th><th className="p-6">Departamento</th><th className="p-6">Estado Clínico</th><th className="p-6 text-right">Gestión</th></thead>
-            <tbody>
+      {/* Staff → TABLE */}
+      {isStaff && (
+        <div className="bg-[#111] border border-white/5 rounded-2xl overflow-hidden">
+          {appointments.length === 0 ? <p className="text-gray-600 text-xs italic p-10 text-center">Bandeja vacía.</p> : (
+            <Table headers={['Paciente', 'DNI/CE', 'Fecha', 'Hora', 'Servicio', 'Monto', 'Urgencia', 'Estado', 'Acciones']}>
               {appointments.map((a: any) => (
-                <tr key={a.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors text-xs text-gray-300">
-                  <td className="p-6 font-bold text-white uppercase">{a.patientName} <span className="block font-mono text-[9px] text-gray-500 mt-1.5">{a.patientDni}</span></td>
-                  <td className="p-6"><span className="bg-white/5 px-2 py-1 rounded border border-white/5">{a.date}</span> <span className="text-emerald-500 font-bold ml-2 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">{a.time}</span></td>
-                  <td className="p-6 font-medium text-gray-300">{a.service}</td>
-                  <td className="p-6 flex items-center gap-2 h-full py-8"><Badge status={a.urgency}>{a.urgency}</Badge> <Badge status={a.status}>{a.status}</Badge></td>
-                  <td className="p-6 text-right space-x-2">
-                    {profile.role === 'admin' && (<><button onClick={() => onReprogram(a)} className="p-2.5 bg-blue-500/10 text-blue-500 rounded-xl border border-blue-500/20 hover:bg-blue-500/20 transition-colors"><Edit size={14} /></button><button onClick={() => onDelete(a.id)} className="p-2.5 bg-red-500/10 text-red-500 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-colors"><Trash2 size={14} /></button></>)}
-                    {profile.role === 'medico' && <button onClick={() => onAddRecipe(a)} className={cn("px-4 py-2.5 rounded-xl font-black uppercase text-[9px] transition-colors border", a.notes ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-white/5 text-white border-white/10 hover:bg-white/10")}><FileText size={12} className="inline mr-1.5" /> Receta</button>}
-                    {profile.role !== 'patient' && a.status === 'PAID' && <button onClick={() => onComplete(a)} className="p-2.5 bg-emerald-500 text-black rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"><CheckCircle2 size={16} /></button>}
-                  </td>
-                </tr>
+                <TR key={a.id} highlight={a.urgency === 'ALTA' && a.date === today}>
+                  <TD bold>{a.patientName}</TD>
+                  <TD mono muted>{a.patientDni}</TD>
+                  <TD muted>{a.date}</TD>
+                  <TD mono emerald>{a.time}</TD>
+                  <TD muted>{a.service}</TD>
+                  <TD bold>S/ {a.amount?.toFixed(2)}</TD>
+                  <TD><UrgencyBadge u={a.urgency} /></TD>
+                  <TD><StatusBadge s={a.status} /></TD>
+                  <TD>
+                    <div className="flex items-center gap-1">
+                      {a.status === 'PENDING' && <IconBtn icon={<CreditCard size={12} />} color="emerald" title="Pagar" onClick={() => onPay(a)} />}
+                      {a.status !== 'COMPLETED' && a.status !== 'CANCELLED' && <IconBtn icon={<RefreshCw size={12} />} color="blue" title="Reprogramar" onClick={() => onReprogram(a)} />}
+                      {a.status !== 'COMPLETED' && a.status !== 'CANCELLED' && <IconBtn icon={<XCircle size={12} />} color="red" title="Cancelar" onClick={() => onCancel(a)} />}
+                      {a.status === 'PAID' && <IconBtn icon={<CheckCircle2 size={12} />} color="green" title="Completar" onClick={() => onComplete(a)} />}
+                      {(profile.role === 'medico' || profile.role === 'admin') && <IconBtn icon={<FileText size={12} />} color="purple" title="Receta" onClick={() => onRecipe(a)} />}
+                      {profile.role === 'admin' && <IconBtn icon={<Trash2 size={12} />} color="red" title="Eliminar" onClick={() => { if (confirm('¿Eliminar esta cita?')) onDelete(a.id); }} />}
+                    </div>
+                  </TD>
+                </TR>
               ))}
-            </tbody>
-          </table>
-          {appointments.length === 0 && <p className="text-gray-500 italic p-12 text-center">Bandeja de citas limpia.</p>}
+            </Table>
+          )}
+        </div>
+      )}
+
+      {/* Patient → CARDS */}
+      {!isStaff && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {appointments.length === 0 && <p className="col-span-full text-gray-600 text-xs italic p-12 text-center border border-dashed border-white/8 rounded-2xl">No tienes citas activas.</p>}
+          {appointments.map((a: any) => (
+            <motion.div key={a.id} layout initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
+              className={cn('bg-[#111] border rounded-2xl p-7 relative overflow-hidden group transition-colors', a.urgency === 'ALTA' ? 'border-red-500/20' : 'border-white/5 hover:border-white/10')}>
+              {a.urgency === 'ALTA' && <div className="absolute inset-0 bg-red-500/3 pointer-events-none" />}
+              <div className="flex justify-between items-start mb-5 relative z-10">
+                <div>
+                  <h4 className="font-black text-white uppercase text-base tracking-tight">{a.service}</h4>
+                  <p className="text-[9px] font-mono text-gray-600 mt-1">{a.patientDni}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <StatusBadge s={a.status} />
+                  <UrgencyBadge u={a.urgency} />
+                </div>
+              </div>
+              <div className="space-y-2.5 mb-6 text-xs text-gray-500 relative z-10">
+                <p className="flex items-center gap-2"><Calendar size={12} className="text-emerald-500" />{a.date} — {a.time}</p>
+                <p className="flex items-center gap-2"><Wallet size={12} className="text-emerald-500" />S/ {a.amount?.toFixed(2)}</p>
+                {a.symptoms && <p className="text-[10px] italic text-gray-600 bg-white/[0.02] p-2 rounded-lg border border-white/5 line-clamp-2">"{a.symptoms}"</p>}
+                {a.notes && <p className="text-[10px] text-blue-400 bg-blue-500/5 p-2 rounded-lg border border-blue-500/10">{a.notes}</p>}
+              </div>
+              <div className="flex gap-2 relative z-10">
+                {a.status === 'PENDING' && <button onClick={() => onPay(a)} className="flex-1 bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest py-3 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Pagar</button>}
+                {a.status !== 'COMPLETED' && a.status !== 'CANCELLED' && <>
+                  <button onClick={() => onReprogram(a)} className="flex-1 bg-white/[0.04] text-white font-black text-[9px] uppercase tracking-widest py-3 rounded-xl hover:bg-white/[0.07] transition-colors border border-white/5">Reprogramar</button>
+                  <button onClick={() => onCancel(a)} className="flex-1 bg-red-500/10 text-red-400 font-black text-[9px] uppercase tracking-widest py-3 rounded-xl hover:bg-red-500/20 transition-colors border border-red-500/20">Cancelar</button>
+                </>}
+                {a.status === 'CANCELLED' && <p className="w-full text-[9px] italic text-red-400/70 text-center">"{a.cancelReason}"</p>}
+              </div>
+            </motion.div>
+          ))}
         </div>
       )}
     </div>
@@ -476,45 +685,131 @@ function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterSta
 
 function HistorialPacienteView({ appointments }: any) {
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><History className="text-blue-500" /> Mi Historial Clínico</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="space-y-5">
+      <SectionHeader icon={<History size={14} className="text-blue-400" />} title="Mi Historial Clínico" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {appointments.length === 0 && <p className="col-span-full text-gray-600 text-xs italic p-12 text-center border border-dashed border-white/8 rounded-2xl">Sin historial clínico aún.</p>}
         {appointments.map((a: any) => (
-          <div key={a.id} className="p-8 bg-[#141414] border border-white/5 rounded-[32px] relative overflow-hidden group">
-            <div className="flex justify-between items-start mb-6"><h4 className="font-black text-xl text-white uppercase">{a.service}</h4><Badge status="COMPLETED">Atendido</Badge></div>
-            <p className="text-xs text-gray-400 mb-2"><Calendar className="inline mr-2 text-emerald-500" size={14} />{a.date}</p>
-            <p className="text-xs text-gray-400 mb-6"><Stethoscope className="inline mr-2 text-emerald-500" size={14} />Dr. {a.medicoNameAttended}</p>
-            <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-              <p className="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-2 flex items-center gap-2"><FileText size={12} /> Diagnóstico / Receta</p>
-              <p className="text-sm text-gray-300 italic">"{a.notes || 'No se registraron notas en esta consulta.'}"</p>
+          <div key={a.id} className="bg-[#111] border border-white/5 rounded-2xl p-7">
+            <div className="flex justify-between items-start mb-4">
+              <h4 className="font-black text-white uppercase">{a.service}</h4>
+              <StatusBadge s="COMPLETED" />
+            </div>
+            <p className="text-xs text-gray-500 mb-1 flex items-center gap-2"><Calendar size={11} className="text-emerald-500" />{a.date}</p>
+            {a.medicoName && <p className="text-xs text-gray-500 mb-4 flex items-center gap-2"><Stethoscope size={11} className="text-emerald-500" />Dr. {a.medicoName}</p>}
+            <div className="bg-[#0a0a0a] border border-white/5 p-4 rounded-xl">
+              <p className="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-1.5">Diagnóstico / Receta</p>
+              <p className="text-xs text-gray-400 italic">"{a.notes || 'Sin notas registradas.'}"</p>
             </div>
           </div>
         ))}
-        {appointments.length === 0 && <p className="col-span-full text-center p-12 border border-dashed border-white/10 rounded-[32px] text-gray-500 italic">No tienes un historial clínico registrado aún.</p>}
       </div>
     </div>
   );
 }
 
 function HistorialGlobalView({ appointments, onDelete }: any) {
-  const history = appointments.filter((a: any) => a.status === 'CANCELLED' || a.status === 'COMPLETED');
+  const history = appointments.filter((a: any) => ['CANCELLED', 'COMPLETED'].includes(a.status));
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><Archive className="text-emerald-500" /> Registro Histórico BD</h2>
-      <div className="bg-[#141414] border border-white/5 rounded-[32px] overflow-hidden shadow-2xl">
-        <table className="w-full text-left">
-          <thead className="bg-white/[0.02] text-[9px] uppercase font-black text-gray-500 tracking-widest border-b border-white/5"><th className="p-6">Paciente</th><th className="p-6">Estado</th><th className="p-6">Detalle Operación</th><th className="p-6 text-right">Manejo BD</th></thead>
-          <tbody>
+    <div className="space-y-5">
+      <SectionHeader icon={<Archive size={14} className="text-emerald-400" />} title={`Historial Global BD (${history.length} registros)`} />
+      <div className="bg-[#111] border border-white/5 rounded-2xl overflow-hidden">
+        {history.length === 0 ? <p className="text-gray-600 text-xs italic p-10 text-center">Sin registros en historial.</p> : (
+          <Table headers={['Paciente', 'DNI', 'Fecha', 'Servicio', 'Estado', 'Detalle', 'Acción']}>
             {history.map((a: any) => (
-              <tr key={a.id} className="border-b border-white/5 text-xs text-gray-300 hover:bg-white/[0.02]">
-                <td className="p-6 font-bold text-white uppercase">{a.patientName}</td><td className="p-6"><Badge status={a.status}>{a.status}</Badge></td>
-                <td className="p-6 italic text-[10px] text-gray-400 bg-black/20 my-4 inline-block px-3 py-1.5 rounded-lg border border-white/5">{a.status === 'COMPLETED' ? `Atendido por: Dr. ${a.medicoNameAttended}` : `Motivo: ${a.cancelReason}`}</td>
-                <td className="p-6 text-right"><button onClick={() => onDelete(a.id)} className="p-2.5 bg-red-500/10 text-red-500 rounded-xl border border-red-500/20 hover:bg-red-500/20 transition-colors"><Trash2 size={14} /></button></td>
-              </tr>
+              <TR key={a.id}>
+                <TD bold>{a.patientName}</TD>
+                <TD mono muted>{a.patientDni}</TD>
+                <TD muted>{a.date}</TD>
+                <TD muted>{a.service}</TD>
+                <TD><StatusBadge s={a.status} /></TD>
+                <TD muted small>{a.status === 'COMPLETED' ? `Dr. ${a.medicoName || '—'}` : (a.cancelReason || '—')}</TD>
+                <TD>
+                  <IconBtn icon={<Trash2 size={12} />} color="red" title="Eliminar" onClick={() => { if (confirm('¿Eliminar registro?')) onDelete(a.id); }} />
+                </TD>
+              </TR>
             ))}
-          </tbody>
-        </table>
-        {history.length === 0 && <p className="text-gray-500 italic p-12 text-center border-t border-white/5">Historial sin registros.</p>}
+          </Table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UsuariosView({ users, onCreate, onEdit, onDelete }: any) {
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <SectionHeader icon={<Users size={14} className="text-blue-400" />} title={`Usuarios (${users.length})`} />
+        <button onClick={onCreate} className="bg-emerald-500 text-black px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
+          <UserPlus size={13} /> Nuevo Usuario
+        </button>
+      </div>
+      <div className="bg-[#111] border border-white/5 rounded-2xl overflow-hidden">
+        <Table headers={['Nombre', 'Rol', 'Usuario / DNI', 'Teléfono', 'Correo', 'Especialidad', 'Acciones']}>
+          {users.map((u: any) => (
+            <TR key={u.id}>
+              <TD bold>{u.name}</TD>
+              <TD>
+                <span className={cn('px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border', u.role === 'admin' ? 'bg-red-500/10 text-red-400 border-red-500/20' : u.role === 'medico' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20')}>{u.role}</span>
+              </TD>
+              <TD mono muted>{u.username || u.dni || '—'}</TD>
+              <TD muted>{u.phone || '—'}</TD>
+              <TD muted>{u.email || '—'}</TD>
+              <TD muted>{u.specialization || '—'}</TD>
+              <TD>
+                <div className="flex items-center gap-1">
+                  <IconBtn icon={<Edit2 size={12} />} color="blue" title="Editar" onClick={() => onEdit(u)} />
+                  {u.id !== 'admin-1' && <IconBtn icon={<Trash2 size={12} />} color="red" title="Eliminar" onClick={() => { if (confirm(`¿Eliminar a ${u.name}?`)) onDelete(u.id); }} />}
+                </div>
+              </TD>
+            </TR>
+          ))}
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function HorariosView({ schedules, profile, onAdd, onDelete }: any) {
+  const mySchedules = profile.role === 'medico' ? schedules.filter((s: any) => s.medicoId === profile.id) : schedules;
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <SectionHeader icon={<Clock size={14} className="text-emerald-400" />} title="Horarios Médicos" />
+        {profile.role === 'medico' && (
+          <button onClick={onAdd} className="bg-emerald-500 text-black px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
+            <Plus size={13} /> Agregar Turno
+          </button>
+        )}
+      </div>
+      {profile.role === 'medico' && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle size={14} className="text-amber-400 shrink-0" />
+          <p className="text-[10px] text-amber-300 font-bold">Solo el Administrador puede eliminar turnos ya registrados. Comunícate con administración para modificaciones.</p>
+        </div>
+      )}
+      <div className="bg-[#111] border border-white/5 rounded-2xl overflow-hidden">
+        {mySchedules.length === 0 ? <p className="text-gray-600 text-xs italic p-10 text-center">Sin horarios registrados.</p> : (
+          <Table headers={['Médico', 'Día', 'Horario', 'Tipo', 'Especialidad', ...(profile.role === 'admin' ? ['Eliminar'] : [])]}>
+            {mySchedules.map((s: any) => (
+              <TR key={s.id}>
+                <TD bold>{s.medicoName}</TD>
+                <TD muted>{s.day}</TD>
+                <TD mono emerald>{s.type === 'DESCANSO' ? '— Día Libre —' : `${s.startTime} — ${s.endTime}`}</TD>
+                <TD>
+                  <span className={cn('px-2 py-0.5 rounded text-[8px] font-black uppercase border', s.type === 'DESCANSO' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20')}>{s.type}</span>
+                </TD>
+                <TD muted>{s.specialty || '—'}</TD>
+                {profile.role === 'admin' && (
+                  <TD>
+                    <IconBtn icon={<Trash2 size={12} />} color="red" title="Eliminar turno" onClick={() => { if (confirm('¿Eliminar este turno?')) onDelete(s.id); }} />
+                  </TD>
+                )}
+              </TR>
+            ))}
+          </Table>
+        )}
       </div>
     </div>
   );
@@ -522,72 +817,115 @@ function HistorialGlobalView({ appointments, onDelete }: any) {
 
 function ATCAdminView({ messages, onReply }: any) {
   return (
-    <div className="space-y-6 max-w-5xl">
-      <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><MessageCircle className="text-blue-500" /> Gestión de Reclamos ATC</h2>
-      {messages.map((m: any) => (
-        <div key={m.id} className="p-8 bg-[#141414] border border-white/5 rounded-[32px] shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-6 opacity-5"><MessageCircle size={48} /></div>
-          <p className="text-xs text-emerald-500 font-black mb-4 tracking-widest uppercase">{m.senderName} <span className="text-gray-500 font-mono font-normal">({m.senderDni})</span></p>
-          <p className="text-sm text-white mb-6 leading-relaxed relative z-10">"{m.content}"</p>
-          {m.reply ? <div className="p-4 bg-emerald-500/10 text-emerald-400 text-xs rounded-2xl border border-emerald-500/20 relative z-10"><span className="font-black uppercase text-[9px] block mb-1">Tu Respuesta:</span> {m.reply}</div> : (
-            <div className="flex gap-4 relative z-10">
-              <input id={`r-${m.id}`} type="text" className="flex-1 bg-[#0a0a0a] p-4 rounded-xl text-sm text-white outline-none border border-white/10 focus:border-emerald-500/50 shadow-inner" placeholder="Escribe la respuesta oficial..." />
-              <button onClick={() => { const i = document.getElementById(`r-${m.id}`) as HTMLInputElement; if (i.value) { onReply(m.id, i.value); i.value = ''; } }} className="bg-emerald-500 text-black px-8 font-black tracking-widest text-[10px] uppercase rounded-xl shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">Enviar</button>
+    <div className="space-y-5">
+      <SectionHeader icon={<MessageSquare size={14} className="text-blue-400" />} title={`Reclamos ATC (${messages.length})`} />
+      {messages.length === 0 && <div className="text-gray-600 text-xs italic p-12 text-center border border-dashed border-white/8 rounded-2xl flex flex-col items-center gap-3"><CheckCircle2 size={32} className="text-emerald-500/30" />Bandeja limpia.</div>}
+      <div className="space-y-4">
+        {messages.map((m: any) => {
+          const [reply, setReply] = React.useState('');
+          return (
+            <div key={m.id} className="bg-[#111] border border-white/5 rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-white font-bold text-sm uppercase">{m.senderName}</p>
+                  <p className="text-gray-500 text-[10px] font-mono">DNI/CE: {m.senderDni}</p>
+                </div>
+                <p className="text-gray-600 text-[9px]">{new Date(m.date).toLocaleString('es-PE')}</p>
+              </div>
+              <p className="text-sm text-gray-300 mb-5 bg-[#0a0a0a] p-4 rounded-xl border border-white/5 italic">"{m.content}"</p>
+              {m.reply ? (
+                <div className="p-4 bg-emerald-500/5 border border-emerald-500/15 rounded-xl">
+                  <p className="text-[9px] text-emerald-400 font-black uppercase mb-1">Respuesta enviada:</p>
+                  <p className="text-sm text-emerald-300">{m.reply}</p>
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <input value={reply} onChange={e => setReply(e.target.value)} placeholder="Escribe la respuesta oficial..."
+                    className="flex-1 bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors" />
+                  <button onClick={() => { if (reply.trim()) { onReply(m.id, reply); } }} className="bg-emerald-500 text-black px-6 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Enviar</button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      ))}
-      {messages.length === 0 && <div className="p-20 text-center border border-dashed border-white/10 rounded-[32px]"><CheckCircle2 size={40} className="mx-auto text-emerald-500/50 mb-4" /><p className="text-gray-500 italic">Bandeja limpia.</p></div>}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 function ATCPatientView({ profile, messages, onSend }: any) {
-  const [msg, setMsg] = useState('');
+  const [msg, setMsg] = React.useState('');
+  const myMsgs = messages.filter((m: any) => m.senderDni === profile.dni);
   return (
-    <div className="space-y-8 max-w-3xl mx-auto">
-      <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><MessageCircle className="text-blue-500" /> Soporte Técnico ATC</h2>
-      <div className="p-8 bg-[#141414] border border-white/5 rounded-[32px] shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/10 rounded-full blur-[80px] pointer-events-none" />
-        <textarea value={msg} onChange={e => setMsg(e.target.value)} className="w-full bg-[#0a0a0a] p-5 rounded-2xl text-white outline-none border border-white/10 h-32 mb-6 resize-none text-sm focus:border-blue-500/50 transition-colors relative z-10 shadow-inner" placeholder="Detalla aquí tu problema o reclamo..." />
-        <button onClick={() => { if (msg) { onSend({ name: profile.name, dni: profile.dni, content: msg }); setMsg(''); } }} className="w-full bg-blue-500 text-white font-black uppercase tracking-widest text-[10px] py-5 rounded-2xl shadow-lg shadow-blue-500/20 hover:bg-blue-400 transition-colors relative z-10">Enviar Ticket a Sistemas</button>
+    <div className="space-y-5 max-w-2xl">
+      <SectionHeader icon={<MessageSquare size={14} className="text-blue-400" />} title="Soporte ATC" />
+      <div className="bg-[#111] border border-white/5 rounded-2xl p-6">
+        <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-4">Nuevo mensaje</p>
+        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Detalla tu problema o consulta..." rows={4}
+          className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none mb-4" />
+        <button onClick={() => { if (msg.trim()) { onSend({ name: profile.name, dni: profile.dni || '', content: msg }); setMsg(''); } }}
+          className="bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-3 px-8 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+          Enviar Ticket
+        </button>
       </div>
-      <div className="space-y-4">
-        {messages.filter((m: any) => m.senderDni === profile.dni).map((m: any) => (
-          <div key={m.id} className="p-6 bg-white/[0.02] border border-white/5 rounded-3xl text-sm"><p className="text-gray-300 mb-4">"{m.content}"</p>{m.reply ? <p className="text-emerald-400 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl"><strong className="text-[9px] uppercase font-black tracking-widest block mb-1">Respuesta ATC:</strong> {m.reply}</p> : <span className="text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">En Revisión</span>}</div>
-        ))}
-      </div>
+      {myMsgs.length > 0 && (
+        <div className="space-y-3">
+          {myMsgs.map((m: any) => (
+            <div key={m.id} className="bg-[#111] border border-white/5 rounded-xl p-5">
+              <p className="text-xs text-gray-300 mb-3 italic">"{m.content}"</p>
+              {m.reply ? (
+                <div className="p-3 bg-emerald-500/5 border border-emerald-500/15 rounded-lg">
+                  <p className="text-[9px] text-emerald-400 font-black uppercase mb-1">Respuesta ATC:</p>
+                  <p className="text-xs text-emerald-300">{m.reply}</p>
+                </div>
+              ) : (
+                <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded border border-amber-500/20">En revisión</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function PagosPendientesView({ appointments, onPay, onViewVoucher }: any) {
+function PagosView({ appointments, onPay, onVoucher }: any) {
+  const pending = appointments.filter((a: any) => a.paymentStatus === 'PENDING' && a.status !== 'CANCELLED');
+  const paid = appointments.filter((a: any) => a.paymentStatus === 'PAID');
   return (
-    <div className="space-y-12">
-      <div>
-        <h3 className="text-white font-black uppercase tracking-widest text-sm mb-6 flex items-center gap-3 border-b border-white/5 pb-4"><AlertCircle className="text-amber-500" /> Pendientes de Pago</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {appointments.filter((a: any) => a.paymentStatus === 'PENDING' && a.status !== 'CANCELLED').map((a: any) => (
-            <div key={a.id} className="p-8 bg-[#141414] border border-amber-500/20 rounded-[32px] shadow-lg relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-6 opacity-5 transition-transform group-hover:scale-110"><CreditCard size={64} /></div>
-              <h4 className="text-white font-black uppercase text-xl mb-6 relative z-10">{a.service}</h4>
-              <p className="text-3xl font-black text-white mb-8 italic relative z-10">S/ {a.amount.toFixed(2)}</p>
-              <button onClick={() => onPay(a)} className="w-full bg-amber-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl shadow-lg shadow-amber-500/20 hover:bg-amber-400 transition-colors relative z-10">Abonar Factura</button>
-            </div>
-          ))}
-          {appointments.filter((a: any) => a.paymentStatus === 'PENDING' && a.status !== 'CANCELLED').length === 0 && <p className="col-span-full text-center p-10 border border-dashed border-white/10 rounded-[32px] text-gray-500 italic">No tienes facturas pendientes.</p>}
-        </div>
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <SectionHeader icon={<AlertCircle size={14} className="text-amber-400" />} title={`Pendientes de Pago (${pending.length})`} />
+        {pending.length === 0 ? <p className="text-gray-600 text-xs italic p-8 text-center border border-dashed border-white/8 rounded-2xl">Sin pagos pendientes.</p> : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pending.map((a: any) => (
+              <div key={a.id} className="bg-[#111] border border-amber-500/15 rounded-2xl p-6">
+                <h4 className="font-black text-white uppercase mb-1">{a.service}</h4>
+                <p className="text-gray-500 text-[10px] mb-4">{a.date} • {a.time}</p>
+                <p className="text-2xl font-black text-white mb-5">S/ {a.amount.toFixed(2)}</p>
+                <button onClick={() => onPay(a)} className="w-full bg-amber-500 text-black font-black text-[10px] uppercase tracking-widest py-3 rounded-xl hover:bg-amber-400 transition-colors shadow-lg shadow-amber-500/20">Pagar Ahora</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-      <div>
-        <h3 className="text-white font-black uppercase tracking-widest text-sm mb-6 flex items-center gap-3 border-b border-white/5 pb-4"><CheckCircle2 className="text-emerald-500" /> Vouchers Electrónicos</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {appointments.filter((a: any) => a.paymentStatus === 'PAID').map((a: any) => (
-            <div key={a.id} className="p-8 bg-[#141414] border border-white/5 rounded-[32px] hover:border-emerald-500/30 transition-colors">
-              <h4 className="text-white font-black uppercase text-lg mb-6">{a.service}</h4>
-              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 bg-emerald-500/10 inline-block px-3 py-1.5 rounded-lg border border-emerald-500/20 mb-8">PAGADO VÍA {a.paymentMethod}</p>
-              <button onClick={() => onViewVoucher(a)} className="w-full border border-white/10 text-white font-black text-[10px] tracking-widest uppercase py-4 rounded-xl hover:bg-white/5 transition-colors flex items-center justify-center gap-2"><FileText size={14} /> Abrir Voucher</button>
-            </div>
-          ))}
+      <div className="space-y-4">
+        <SectionHeader icon={<CheckCircle2 size={14} className="text-emerald-400" />} title={`Historial de Pagos (${paid.length})`} />
+        <div className="bg-[#111] border border-white/5 rounded-2xl overflow-hidden">
+          {paid.length === 0 ? <p className="text-gray-600 text-xs italic p-8 text-center">Sin pagos registrados.</p> : (
+            <Table headers={['Servicio', 'Fecha', 'Monto', 'Método', 'Referencia', 'Voucher']}>
+              {paid.map((a: any) => (
+                <TR key={a.id}>
+                  <TD bold>{a.service}</TD>
+                  <TD muted>{a.date}</TD>
+                  <TD bold>S/ {a.amount.toFixed(2)}</TD>
+                  <TD muted>{a.paymentMethod || '—'}</TD>
+                  <TD mono muted>{a.reference || '—'}</TD>
+                  <TD><button onClick={() => onVoucher(a)} className="px-3 py-1.5 bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase rounded-lg border border-blue-500/20 hover:bg-blue-500/20 transition-colors">Ver</button></TD>
+                </TR>
+              ))}
+            </Table>
+          )}
         </div>
       </div>
     </div>
@@ -595,219 +933,128 @@ function PagosPendientesView({ appointments, onPay, onViewVoucher }: any) {
 }
 
 function InformacionView({ profile, onUpdate }: any) {
-  const [d, setD] = useState({ phone: profile.phone || '', email: profile.email || '' });
+  const [d, setD] = React.useState({ phone: profile.phone || '', email: profile.email || '' });
   return (
-    <div className="max-w-2xl mx-auto p-12 bg-[#141414] border border-white/5 rounded-[40px] shadow-2xl relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[100px] -mr-40 -mt-40 pointer-events-none" />
-      <div className="flex items-center gap-6 mb-12 border-b border-white/5 pb-8 relative z-10">
-        <div className="w-24 h-24 bg-white/5 rounded-[32px] flex items-center justify-center text-4xl font-black text-white border border-white/10">{profile.name.charAt(0)}</div>
-        <div>
-          <h2 className="text-3xl text-white font-black italic uppercase tracking-tight">{profile.name}</h2>
-          <span className="inline-block mt-3 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg text-[10px] font-mono text-gray-400">DNI OFICIAL: {profile.dni}</span>
+    <div className="max-w-lg space-y-5">
+      <SectionHeader icon={<UserIcon size={14} className="text-gray-400" />} title="Mi Perfil" />
+      <div className="bg-[#111] border border-white/5 rounded-2xl p-7 space-y-5">
+        <div className="flex items-center gap-4 pb-5 border-b border-white/5">
+          <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-400 font-black text-xl">{profile.name[0]}</div>
+          <div>
+            <p className="text-white font-black uppercase">{profile.name}</p>
+            <p className="text-gray-500 text-[10px] font-mono">DNI/CE: {profile.dni || '—'}</p>
+          </div>
         </div>
-      </div>
-      <div className="space-y-6 relative z-10">
-        <InputGroup label="Móvil de Contacto" type="tel" value={d.phone} onChange={(e: any) => setD({ ...d, phone: e.target.value })} placeholder="Ej: 987654321" />
-        <InputGroup label="Correo de Notificaciones" type="email" value={d.email} onChange={(e: any) => setD({ ...d, email: e.target.value })} placeholder="correo@ejemplo.com" />
-        <button onClick={() => onUpdate(d)} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] mt-4 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">Guardar Preferencias</button>
+        <Field label="Teléfono" type="tel" value={d.phone} onChange={(e: any) => setD({ ...d, phone: e.target.value })} placeholder="987654321" />
+        <Field label="Correo Electrónico" type="email" value={d.email} onChange={(e: any) => setD({ ...d, email: e.target.value })} placeholder="correo@ejemplo.com" />
+        <button onClick={() => onUpdate(d)} className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+          Guardar Cambios
+        </button>
       </div>
     </div>
   );
 }
 
-function UsuariosView({ users, onCreate, onDelete }: any) {
+// ─────────────────────────────────────────────────────────────
+// TABLE HELPERS
+// ─────────────────────────────────────────────────────────────
+function Table({ headers, children }: any) {
   return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center border-b border-white/5 pb-6">
-        <h2 className="text-xl text-white font-black italic uppercase tracking-widest flex items-center gap-3"><Users className="text-blue-500" /> Personal y Pacientes</h2>
-        <button onClick={onCreate} className="bg-emerald-500 text-black px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors flex items-center gap-2"><UserPlus size={16} /> Alta de Usuario</button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {users.map((u: any) => (
-          <div key={u.id} className="p-8 bg-[#141414] border border-white/5 rounded-[32px] shadow-lg relative overflow-hidden group hover:border-white/10 transition-colors">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center font-black text-white border border-white/10">{u.name.charAt(0)}</div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-white font-bold uppercase truncate text-sm">{u.name}</h4>
-                <span className={cn("inline-block mt-1.5 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border", u.role === 'admin' ? 'bg-red-500/10 text-red-400 border-red-500/20' : u.role === 'medico' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20')}>{u.role}</span>
-              </div>
-            </div>
-            <div className="p-4 bg-[#0a0a0a] rounded-xl border border-white/5 mb-6 text-[10px] text-gray-500 font-mono flex flex-col gap-1.5">
-              <span>ID: {u.dni || u.username}</span>
-            </div>
-            {u.role !== 'admin' && <button onClick={() => onDelete(u.id)} className="w-full text-[9px] uppercase font-black tracking-widest text-red-500 border border-red-500/20 py-3 rounded-xl bg-red-500/5 hover:bg-red-500/10 transition-colors flex items-center justify-center gap-2"><Trash2 size={12} /> Dar de Baja</button>}
-          </div>
-        ))}
-      </div>
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-white/5 bg-white/[0.015]">
+            {headers.map((h: string) => <th key={h} className="text-left px-5 py-3.5 text-[9px] uppercase tracking-[0.2em] text-gray-500 font-black whitespace-nowrap">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
     </div>
   );
 }
 
-function HorariosView({ schedules, setSchedules, profile, onAdd }: any) {
+function TR({ children, highlight }: any) {
+  return <tr className={cn('border-b border-white/[0.04] transition-colors', highlight ? 'bg-red-500/[0.04] border-l-2 border-l-red-500' : 'hover:bg-white/[0.02]')}>{children}</tr>;
+}
+
+function TD({ children, bold, mono, muted, emerald, small }: any) {
   return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center border-b border-white/5 pb-6">
-        <h2 className="text-xl text-white font-black italic uppercase tracking-widest flex items-center gap-3"><Clock className="text-emerald-500" /> Planificador de Turnos</h2>
-        {profile?.role === 'medico' && <button onClick={onAdd} className="bg-emerald-500 text-black px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors flex items-center gap-2"><Plus size={16} /> Bloque Horario</button>}
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {schedules.map((s: any) => (
-          <div key={s.id} className={cn("p-8 rounded-[32px] border relative shadow-lg overflow-hidden", s.type === 'DESCANSO' ? "bg-red-500/5 border-red-500/20" : "bg-[#141414] border-white/5")}>
-            <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-              <p className="text-emerald-500 font-black text-[10px] uppercase tracking-widest">{s.day}</p>
-              <span className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase border", s.type === 'DESCANSO' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20')}>{s.type}</span>
-            </div>
-            <h4 className={cn("font-black text-2xl mb-2 tracking-tighter", s.type === 'DESCANSO' ? 'text-red-300' : 'text-white')}>{s.type === 'DESCANSO' ? 'LIBRE' : `${s.startTime} - ${s.endTime}`}</h4>
-            <p className="text-[10px] text-gray-500 uppercase font-bold mt-4">Dr. {s.medicoName}</p>
-            {s.specialty && s.type !== 'DESCANSO' && <p className="text-[9px] text-blue-400 uppercase tracking-widest mt-1.5">{s.specialty}</p>}
+    <td className={cn('px-5 py-3.5 whitespace-nowrap', bold ? 'font-bold text-white uppercase' : '', mono ? 'font-mono' : '', muted ? 'text-gray-500' : '', emerald ? 'text-emerald-400 font-bold' : '', small ? 'text-[9px]' : '')}>
+      {children}
+    </td>
+  );
+}
 
-            {/* AQUÍ ESTÁ LA CORRECCIÓN DEL BOTÓN DE ELIMINAR TURNO PARA EL MÉDICO */}
-            {(profile?.role === 'admin' || profile?.id === s.medicoId) && (
-              <button onClick={() => setSchedules(schedules.filter((x: any) => x.id !== s.id))} className="mt-8 w-full py-3 bg-red-500/10 border border-red-500/20 text-[9px] text-red-500 font-black uppercase tracking-widest rounded-xl hover:bg-red-500/20 transition-colors">
-                Eliminar Turno
-              </button>
-            )}
-          </div>
-        ))}
-        {schedules.length === 0 && <p className="col-span-full text-center p-12 border border-dashed border-white/10 rounded-[32px] text-gray-500 italic">No hay asignaciones horarias en la base de datos.</p>}
-      </div>
+function IconBtn({ icon, color, title, onClick }: any) {
+  const colors = { emerald: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20', blue: 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20', red: 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20', purple: 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border-purple-500/20', green: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20' };
+  return <button onClick={onClick} title={title} className={cn('p-1.5 rounded-lg border transition-colors', colors[color as keyof typeof colors] || colors.blue)}>{icon}</button>;
+}
+
+function SectionHeader({ icon, title }: any) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      {icon}
+      <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-white">{title}</h2>
     </div>
   );
 }
 
-// --- Modals Base ---
+// ─────────────────────────────────────────────────────────────
+// MODAL WRAPPER
+// ─────────────────────────────────────────────────────────────
 function Modal({ title, children, onClose }: any) {
   return (
-    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} className="bg-[#141414] border border-white/10 rounded-[40px] w-full max-w-md shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-blue-500" />
-        <div className="p-10">
-          <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-6">
-            <h3 className="text-white font-black italic uppercase tracking-tight text-xl">{title}</h3>
-            <button onClick={onClose} className="text-gray-500 hover:text-white bg-white/5 p-2.5 rounded-full hover:bg-white/10 transition-colors"><XCircle size={20} /></button>
-          </div>
-          {children}
+    <div className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.96, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }}
+        className="bg-[#141414] border border-white/8 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-7 py-5 border-b border-white/5">
+          <h3 className="text-white font-black uppercase tracking-[0.15em] text-sm italic">{title}</h3>
+          <button onClick={onClose} className="text-gray-600 hover:text-white bg-white/[0.04] rounded-lg p-1.5 transition-colors"><XCircle size={16} /></button>
         </div>
+        <div className="p-7">{children}</div>
       </motion.div>
     </div>
   );
 }
 
-// --- Implementación de Modales Premium ---
-
-function CreateUserModal({ onClose, onConfirm }: any) {
-  const [d, setD] = useState({ name: '', dni: '', role: 'patient' as Role, username: '', password: '' });
+// ─────────────────────────────────────────────────────────────
+// MODALS
+// ─────────────────────────────────────────────────────────────
+function ExternalSupportForm({ onSend }: any) {
+  const [d, setD] = React.useState({ name: '', dni: '', content: '' });
   return (
-    <Modal title="Registro de Nuevo Usuario" onClose={onClose}>
-      <div className="space-y-6">
-        <div className="bg-[#0a0a0a] p-1.5 rounded-2xl flex gap-1 border border-white/5">
-          {[
-            { id: 'admin', icon: <ShieldCheck size={14} />, label: 'Admin' },
-            { id: 'medico', icon: <Stethoscope size={14} />, label: 'Médico' },
-            { id: 'patient', icon: <UserIcon size={14} />, label: 'Paciente' }
-          ].map(r => (
-            <button key={r.id} onClick={() => setD({ ...d, role: r.id as Role })} className={cn("flex-1 py-3.5 rounded-xl flex items-center justify-center gap-2 text-[9px] font-black tracking-widest uppercase transition-all", d.role === r.id ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20" : "text-gray-500 hover:text-white hover:bg-white/5")}>
-              {r.icon} <span className="hidden sm:inline">{r.label}</span>
-            </button>
-          ))}
-        </div>
-
-        <InputGroup label="Nombre y Apellidos Completos" type="text" placeholder="Ej. Juan Pérez" value={d.name} onChange={(e: any) => setD({ ...d, name: e.target.value })} />
-
-        <AnimatePresence mode="wait">
-          {d.role === 'patient' ? (
-            <motion.div key="pat" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-              <InputGroup label="Documento de Identidad (DNI/CE)" type="text" maxLength={15} placeholder="Número de documento" value={d.dni} onChange={(e: any) => setD({ ...d, dni: e.target.value })} />
-            </motion.div>
-          ) : (
-            <motion.div key="staff" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="grid grid-cols-2 gap-4">
-              <InputGroup label="Usuario de Acceso" type="text" placeholder="Ej. admin_01" value={d.username} onChange={(e: any) => setD({ ...d, username: e.target.value })} />
-              <InputGroup label="Contraseña" type="password" placeholder="••••••••" value={d.password} onChange={(e: any) => setD({ ...d, password: e.target.value })} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <button onClick={() => onConfirm(d)} disabled={!d.name || (d.role === 'patient' ? !d.dni : (!d.username || !d.password))} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-50 mt-6">
-          Registrar en Base de Datos
-        </button>
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">Completa el formulario. ATC te responderá a la brevedad.</p>
+      <Field label="Nombre Completo" value={d.name} onChange={(e: any) => setD({ ...d, name: e.target.value })} placeholder="Juan Pérez" />
+      <Field label="DNI o CE" value={d.dni} onChange={(e: any) => setD({ ...d, dni: e.target.value })} placeholder="77665544" />
+      <div className="space-y-1.5">
+        <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Problema</label>
+        <textarea value={d.content} onChange={e => setD({ ...d, content: e.target.value })} rows={4} placeholder="Describe el problema..."
+          className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none" />
       </div>
-    </Modal>
-  );
-}
-
-function CreateApptModal({ profile, schedules, onClose, onConfirm }: any) {
-  const [symptoms, setSymptoms] = useState('');
-  const [res, setRes] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [d, setD] = useState({ date: '', time: '' });
-
-  const triage = async () => {
-    setLoading(true);
-    try {
-      const resp = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Analiza: ${symptoms}. Determina urgencia (BAJA, MEDIA, ALTA) y especialidad de: ${Object.keys(SPECIALIZATION_PRICES).join(', ')}. Solo JSON {"urgency":"", "specialization":""}`,
-        config: { responseMimeType: "application/json" }
-      });
-      const data = JSON.parse(resp.text || '{}');
-      setRes(data);
-      if (data.urgency === 'ALTA') {
-        const slots = schedules.filter((s: any) => s.type === 'DISPONIBLE');
-        if (slots.length > 0) { const tmr = new Date(); tmr.setDate(tmr.getDate() + 1); setD({ date: tmr.toISOString().split('T')[0], time: slots[0].startTime }); }
-      }
-    } catch { setRes({ urgency: 'MEDIA', specialization: 'Medicina General' }); }
-    setLoading(false);
-  };
-
-  return (
-    <Modal title="Motor Triaje IA" onClose={onClose}>
-      {!res ? (
-        <div className="space-y-6">
-          <div className="p-5 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex gap-4">
-            <Activity size={24} className="text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-blue-200/80 leading-relaxed font-medium">Describe tus síntomas detalladamente. Nuestra Inteligencia Artificial asignará la especialidad médica adecuada en milisegundos.</p>
-          </div>
-          <textarea value={symptoms} onChange={e => setSymptoms(e.target.value)} placeholder="Ej: Dolor agudo en el pecho..." className="w-full bg-[#0a0a0a] border border-white/10 p-5 rounded-2xl text-white text-sm h-36 resize-none outline-none focus:border-emerald-500/50 shadow-inner" />
-          <button onClick={triage} disabled={loading || !symptoms} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 disabled:opacity-50 transition-all flex justify-center items-center gap-2">
-            {loading ? <RefreshCw size={16} className="animate-spin" /> : <Activity size={16} />}
-            {loading ? 'Procesando IA...' : 'Ejecutar Diagnóstico Automático'}
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-8">
-          <div className={cn("text-center p-8 border rounded-3xl relative overflow-hidden", res.urgency === 'ALTA' ? 'bg-red-500/5 border-red-500/30' : 'bg-[#0a0a0a] border-white/10')}>
-            {res.urgency === 'ALTA' && <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none" />}
-            <p className={cn("font-black text-[10px] uppercase tracking-widest mb-3 relative z-10", res.urgency === 'ALTA' ? 'text-red-500' : 'text-emerald-500')}>Prioridad: {res.urgency}</p>
-            <h4 className="text-white font-black text-3xl relative z-10 tracking-tight">{res.specialization}</h4>
-            {res.urgency === 'ALTA' && d.date && <p className="text-[9px] text-red-400 font-bold uppercase mt-4 bg-red-500/10 py-1.5 px-3 rounded-lg inline-block border border-red-500/20 relative z-10">Turno Emergencia Pre-asignado</p>}
-          </div>
-          <div className="grid grid-cols-2 gap-6">
-            <InputGroup label="Fecha Asignada" type="date" value={d.date} onChange={(e: any) => setD({ ...d, date: e.target.value })} />
-            <InputGroup label="Bloque Horario" type="time" value={d.time} onChange={(e: any) => setD({ ...d, time: e.target.value })} />
-          </div>
-          <div className="flex gap-4 pt-2">
-            <button onClick={() => onConfirm({ name: profile.name, dni: profile.dni, service: res.specialization, urgency: res.urgency, symptoms, ...d }, true)} className="flex-1 bg-emerald-500 text-black py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">Abonar S/{SPECIALIZATION_PRICES[res.specialization] || DEFAULT_PRICE}</button>
-            <button onClick={() => onConfirm({ name: profile.name, dni: profile.dni, service: res.specialization, urgency: res.urgency, symptoms, ...d }, false)} className="flex-1 border border-white/20 text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white/10 transition-colors">Pago en Clínica</button>
-          </div>
-        </div>
-      )}
-    </Modal>
+      <button onClick={() => { if (d.name && d.dni && d.content) onSend(d); }}
+        className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+        Enviar a ATC
+      </button>
+    </div>
   );
 }
 
 function PaymentModal({ appt, onClose, onConfirm }: any) {
-  const [ref, setRef] = useState('');
-  const [method, setMethod] = useState<'YAPE' | 'PLIN' | 'CARD'>('YAPE');
+  const [method, setMethod] = React.useState<'YAPE' | 'PLIN' | 'CARD'>('YAPE');
+  const [ref, setRef] = React.useState('');
   return (
-    <Modal title="Pasarela de Pagos" onClose={onClose}>
-      <div className="space-y-8">
-        <div className="grid grid-cols-3 gap-3">
-          {['YAPE', 'PLIN', 'CARD'].map((m: any) => (
-            <button key={m} onClick={() => setMethod(m)} className={cn("py-4 rounded-xl text-[10px] font-black tracking-widest transition-all border", method === m ? "bg-emerald-500 text-black border-emerald-500 shadow-lg shadow-emerald-500/20 scale-105" : "bg-[#0a0a0a] text-gray-500 border-white/10 hover:bg-white/5")}>{m}</button>
-          ))}
+    <Modal title="Procesar Pago" onClose={onClose}>
+      <div className="space-y-5">
+        <p className="text-xs text-gray-500">Cita: <span className="text-white font-bold">{appt.patientName}</span> — S/ {appt.amount.toFixed(2)}</p>
+        <div className="flex gap-2">
+          {(['YAPE', 'PLIN', 'CARD'] as const).map(m => <button key={m} onClick={() => setMethod(m)} className={cn('flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all', method === m ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'bg-white/[0.04] text-gray-500 hover:bg-white/[0.07]')}>{m}</button>)}
         </div>
-        <InputGroup label="Código de Operación (Hash)" type="text" value={ref} onChange={(e: any) => setRef(e.target.value)} placeholder="Ej. TRX-12345678" />
-        <button onClick={() => onConfirm(appt.id, method, ref)} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2">Autorizar Cargo de S/{appt.amount.toFixed(2)}</button>
+        <Field label="Referencia / Código" value={ref} onChange={(e: any) => setRef(e.target.value)} placeholder="TRX-12345" />
+        <button onClick={() => onConfirm(appt.id, method, ref)} className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+          Confirmar Pago S/ {appt.amount.toFixed(2)}
+        </button>
       </div>
     </Modal>
   );
@@ -816,124 +1063,355 @@ function PaymentModal({ appt, onClose, onConfirm }: any) {
 function VoucherModal({ appt, onClose }: any) {
   return (
     <Modal title="Comprobante Digital" onClose={onClose}>
-      <div className="bg-gray-50 text-gray-900 p-8 rounded-[32px] font-mono text-sm space-y-4 mb-8 relative overflow-hidden shadow-inner border border-gray-200">
-        <div className="absolute top-0 right-0 w-full h-4 bg-emerald-500" />
-        <h4 className="text-center font-black italic text-3xl border-b border-gray-300 pb-6 mb-6 tracking-tighter">MEDIAGENDAK</h4>
-        <div className="space-y-3 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-          <p className="flex justify-between"><span className="text-gray-400">PACIENTE:</span><span className="font-bold uppercase">{appt.patientName}</span></p>
-          <p className="flex justify-between"><span className="text-gray-400">DNI:</span><span className="font-bold">{appt.patientDni}</span></p>
-          <p className="flex justify-between"><span className="text-gray-400">FECHA:</span><span className="font-bold">{appt.date}</span></p>
-          <p className="flex justify-between"><span className="text-gray-400">MÉTODO:</span><span className="font-bold bg-gray-100 px-2 py-0.5 rounded">{appt.paymentMethod}</span></p>
-        </div>
-        <div className="pt-4 border-t-2 border-dashed border-gray-300 mt-6">
-          <p className="flex justify-between mb-2"><span className="text-gray-500 font-black">SERVICIO:</span><span className="font-black text-emerald-600 uppercase">{appt.service}</span></p>
-          <p className="flex justify-between items-center text-2xl pt-2"><span className="font-black text-gray-900">TOTAL:</span><span className="font-black text-emerald-500">S/{appt.amount.toFixed(2)}</span></p>
+      <div className="bg-white text-gray-900 rounded-2xl p-6 font-mono text-xs mb-5 relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />
+        <h4 className="text-center font-black text-xl italic mb-4 pt-2 border-b border-gray-200 pb-4">MEDIAGENDAK</h4>
+        <div className="space-y-2">
+          <div className="flex justify-between"><span className="text-gray-400">Paciente:</span><span className="font-bold">{appt.patientName}</span></div>
+          <div className="flex justify-between"><span className="text-gray-400">DNI/CE:</span><span className="font-bold">{appt.patientDni}</span></div>
+          <div className="flex justify-between"><span className="text-gray-400">Servicio:</span><span className="font-bold uppercase">{appt.service}</span></div>
+          <div className="flex justify-between"><span className="text-gray-400">Fecha:</span><span className="font-bold">{appt.date}</span></div>
+          <div className="flex justify-between"><span className="text-gray-400">Método:</span><span className="font-bold">{appt.paymentMethod}</span></div>
+          <div className="flex justify-between"><span className="text-gray-400">Ref:</span><span className="font-bold">{appt.reference}</span></div>
+          <div className="flex justify-between text-base pt-3 border-t border-gray-200 mt-3"><span className="font-black">TOTAL</span><span className="font-black text-emerald-600">S/ {appt.amount.toFixed(2)}</span></div>
         </div>
       </div>
-      <button onClick={() => window.print()} className="w-full bg-white/5 text-white border border-white/20 py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors flex items-center justify-center gap-2"><Archive size={16} /> Guardar e Imprimir</button>
-    </Modal>
-  );
-}
-
-function CompleteApptModal({ appt, profile, onClose, onConfirm }: any) {
-  const [n, setN] = useState(profile.role === 'medico' ? profile.name : '');
-  return (
-    <Modal title="Cierre Clínico" onClose={onClose}>
-      <div className="space-y-6">
-        <p className="text-xs text-gray-400 mb-6">Confirma el médico a cargo para sellar el historial del paciente.</p>
-        <InputGroup label="Firma de Médico Tratante" type="text" value={n} onChange={(e: any) => setN(e.target.value)} placeholder="Ej. Dr. Apellido" />
-        <button onClick={() => onConfirm(appt.id, n)} disabled={!n} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] mt-4 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors disabled:opacity-50">Finalizar Atención y Guardar</button>
-      </div>
+      <button onClick={() => window.print()} className="w-full bg-white/[0.04] text-white font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-white/[0.07] transition-colors border border-white/8">
+        Imprimir Voucher
+      </button>
     </Modal>
   );
 }
 
 function CancelModal({ appt, onClose, onConfirm }: any) {
-  const [r, setR] = useState('');
+  const [reason, setReason] = React.useState('');
   return (
-    <Modal title="Proceso de Anulación" onClose={onClose}>
-      <div className="space-y-6">
-        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex gap-3">
-          <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
-          <p className="text-[10px] text-red-200 leading-relaxed">Esta acción es irreversible. El sistema liberará el turno para otros pacientes de la lista de espera.</p>
+    <Modal title="Cancelar Cita" onClose={onClose}>
+      <div className="space-y-5">
+        <div className="flex gap-3 bg-red-500/5 border border-red-500/15 rounded-xl p-4">
+          <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-300">Esta acción es irreversible y moverá la cita al historial de canceladas.</p>
         </div>
-        <div className="space-y-2">
-          <label className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Motivo de Anulación</label>
-          <textarea value={r} onChange={e => setR(e.target.value)} placeholder="Especifica el motivo..." className="w-full bg-[#0a0a0a] border border-white/10 p-5 rounded-2xl text-white outline-none h-32 resize-none text-sm focus:border-red-500/50 shadow-inner" />
+        <div className="space-y-1.5">
+          <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Motivo de cancelación</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} placeholder="Especifica el motivo..."
+            className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-red-500/40 transition-colors resize-none" />
         </div>
-        <button onClick={() => onConfirm(appt.id, r)} disabled={!r} className="w-full bg-red-500/10 border border-red-500/20 text-red-500 py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-red-500/20 transition-colors disabled:opacity-50 mt-2">Confirmar Anulación Definitiva</button>
+        <button onClick={() => onConfirm(appt.id, reason)} disabled={!reason.trim()}
+          className="w-full bg-red-500/10 border border-red-500/20 text-red-400 font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-red-500/20 transition-colors disabled:opacity-40">
+          Confirmar Cancelación
+        </button>
       </div>
     </Modal>
   );
 }
 
 function ReprogramModal({ appt, onClose, onConfirm }: any) {
-  const [d, setD] = useState({ date: appt.date, time: appt.time });
+  const [d, setD] = React.useState({ date: appt.date, time: appt.time });
   return (
-    <Modal title="Reprogramación de Turno" onClose={onClose}>
-      <div className="space-y-8">
-        <div className="grid grid-cols-2 gap-6">
-          <InputGroup label="Nueva Fecha" type="date" value={d.date} onChange={(e: any) => setD({ ...d, date: e.target.value })} />
-          <InputGroup label="Nuevo Horario" type="time" value={d.time} onChange={(e: any) => setD({ ...d, time: e.target.value })} />
-        </div>
-        <button onClick={() => onConfirm(appt.id, d.date, d.time)} className="w-full bg-blue-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-blue-500/20 hover:bg-blue-400 transition-colors mt-4">Actualizar en BD</button>
+    <Modal title="Reprogramar Cita" onClose={onClose}>
+      <div className="space-y-5">
+        <Field label="Nueva Fecha" type="date" value={d.date} onChange={(e: any) => setD({ ...d, date: e.target.value })} />
+        <Field label="Nueva Hora" type="time" value={d.time} onChange={(e: any) => setD({ ...d, time: e.target.value })} />
+        <button onClick={() => onConfirm(appt.id, d.date, d.time)}
+          className="w-full bg-blue-500 text-white font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-blue-400 transition-colors shadow-lg shadow-blue-500/20">
+          Actualizar Fecha
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function CompleteModal({ appt, profile, onClose, onConfirm }: any) {
+  const [medicoName, setMedicoName] = React.useState(profile.role === 'medico' ? profile.name : '');
+  return (
+    <Modal title="Completar Atención" onClose={onClose}>
+      <div className="space-y-5">
+        <p className="text-xs text-gray-500">Paciente: <span className="text-white font-bold">{appt.patientName}</span></p>
+        <Field label="Médico Tratante" value={medicoName} onChange={(e: any) => setMedicoName(e.target.value)} placeholder="Dr. Apellido" />
+        <button onClick={() => onConfirm(appt.id, medicoName)} disabled={!medicoName.trim()}
+          className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-40">
+          Finalizar y Guardar en Historial
+        </button>
       </div>
     </Modal>
   );
 }
 
 function RecipeModal({ appt, onClose, onConfirm }: any) {
-  const [n, setN] = useState(appt.notes || '');
+  const [notes, setNotes] = React.useState(appt.notes || '');
+  const [loading, setLoading] = React.useState(false);
+
+  const generateAI = async () => {
+    setLoading(true);
+    try {
+      const resp = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-preview-04-17',
+        contents: `Genera una receta médica breve y profesional para: Síntomas: ${appt.symptoms || 'No especificados'}. Especialidad: ${appt.service}. Solo incluye diagnóstico presuntivo, medicamentos con dosis y recomendaciones. Máximo 80 palabras.`,
+      });
+      setNotes(resp.text);
+    } catch { setNotes('Error al generar con IA. Redacta manualmente.'); }
+    setLoading(false);
+  };
+
   return (
-    <Modal title="Historia Clínica (Receta)" onClose={onClose}>
-      <div className="space-y-6">
-        <div className="p-4 bg-white/5 border border-white/10 rounded-xl mb-6 shadow-inner">
-          <p className="text-[9px] text-gray-500 uppercase font-black mb-1">Paciente en consulta:</p>
-          <p className="text-white font-bold text-sm mb-3">{appt.patientName}</p>
+    <Modal title="Receta Médica" onClose={onClose}>
+      <div className="space-y-5">
+        <p className="text-xs text-gray-500">Paciente: <span className="text-white font-bold">{appt.patientName}</span></p>
+        <div className="space-y-1.5">
+          <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Indicaciones / Receta</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5} placeholder="Prescripciones, dosis, recomendaciones..."
+            className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none" />
         </div>
-        <div className="space-y-2">
-          <label className="text-[10px] text-gray-400 uppercase font-black tracking-widest flex items-center gap-2"><Stethoscope size={14} /> Indicaciones Médicas</label>
-          <textarea value={n} onChange={e => setN(e.target.value)} placeholder="Prescripciones, medicinas o notas de la consulta..." className="w-full bg-[#0a0a0a] border border-white/10 p-5 rounded-2xl text-white outline-none h-48 resize-none text-sm focus:border-emerald-500/50 shadow-inner" />
+        <button onClick={generateAI} disabled={loading}
+          className="w-full bg-purple-500/10 border border-purple-500/20 text-purple-400 font-black text-[10px] uppercase tracking-widest py-3 rounded-xl hover:bg-purple-500/20 transition-colors">
+          {loading ? 'Generando...' : '✨ Generar con IA'}
+        </button>
+        <button onClick={() => onConfirm(appt.id, notes)}
+          className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+          Guardar Receta
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function CreateUserModal({ onClose, onConfirm }: any) {
+  const [d, setD] = React.useState({ name: '', dni: '', username: '', password: '', role: 'patient' as Role, phone: '', email: '', specialization: '', restDays: [] as string[] });
+  const toggleRest = (day: string) => setD(p => ({ ...p, restDays: p.restDays.includes(day) ? p.restDays.filter(x => x !== day) : [...p.restDays, day] }));
+  return (
+    <Modal title="Nuevo Usuario" onClose={onClose}>
+      <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+        <div className="flex gap-1.5 bg-[#0a0a0a] p-1.5 rounded-xl border border-white/5">
+          {(['admin', 'medico', 'patient'] as Role[]).map(r => (
+            <button key={r} onClick={() => setD(p => ({ ...p, role: r }))}
+              className={cn('flex-1 py-2.5 rounded-lg text-[9px] font-black uppercase transition-all', d.role === r ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-gray-500 hover:text-white')}>
+              {r}
+            </button>
+          ))}
         </div>
-        <button onClick={() => onConfirm(appt.id, n)} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors mt-2">Firmar y Guardar Cambios</button>
+        <Field label="Nombre Completo" value={d.name} onChange={(e: any) => setD(p => ({ ...p, name: e.target.value }))} placeholder="Juan Pérez" />
+        {d.role === 'patient' ? (
+          <Field label="DNI o CE" value={d.dni} onChange={(e: any) => setD(p => ({ ...p, dni: e.target.value }))} placeholder="77665544" maxLength={15} />
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Usuario" value={d.username} onChange={(e: any) => setD(p => ({ ...p, username: e.target.value }))} placeholder="medico01" />
+            <Field label="Contraseña" type="password" value={d.password} onChange={(e: any) => setD(p => ({ ...p, password: e.target.value }))} placeholder="••••••" />
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Teléfono" type="tel" value={d.phone} onChange={(e: any) => setD(p => ({ ...p, phone: e.target.value }))} placeholder="987654321" />
+          <Field label="Correo" type="email" value={d.email} onChange={(e: any) => setD(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" />
+        </div>
+        {d.role === 'medico' && (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Especialidad</label>
+              <select value={d.specialization} onChange={e => setD(p => ({ ...p, specialization: e.target.value }))}
+                className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-white text-sm outline-none focus:border-emerald-500/40">
+                <option value="">Seleccionar...</option>
+                {Object.keys(SPECIALIZATION_PRICES).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Días de Descanso</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DIAS_SEMANA.map(d2 => (
+                  <button key={d2} type="button" onClick={() => toggleRest(d2)}
+                    className={cn('px-3 py-1.5 rounded-lg text-[9px] font-bold border transition-all', d.restDays.includes(d2) ? 'bg-red-500/15 text-red-400 border-red-500/25' : 'bg-white/[0.03] text-gray-600 border-white/5 hover:border-white/10')}>
+                    {d2}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        <button onClick={() => onConfirm(d)}
+          className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 mt-2">
+          Crear Usuario
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function EditUserModal({ user, onClose, onConfirm }: any) {
+  const [d, setD] = React.useState({ name: user.name, password: '', phone: user.phone || '', email: user.email || '', specialization: user.specialization || '', restDays: user.restDays || [] as string[] });
+  const toggleRest = (day: string) => setD(p => ({ ...p, restDays: p.restDays.includes(day) ? p.restDays.filter((x: string) => x !== day) : [...p.restDays, day] }));
+  return (
+    <Modal title="Editar Usuario" onClose={onClose}>
+      <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+        <p className="text-[9px] text-gray-500 uppercase font-black">Rol: <span className="text-emerald-400">{user.role}</span></p>
+        <Field label="Nombre" value={d.name} onChange={(e: any) => setD(p => ({ ...p, name: e.target.value }))} />
+        {user.role !== 'patient' && <Field label="Nueva Contraseña (dejar vacío para no cambiar)" type="password" value={d.password} onChange={(e: any) => setD(p => ({ ...p, password: e.target.value }))} placeholder="••••••" />}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Teléfono" value={d.phone} onChange={(e: any) => setD(p => ({ ...p, phone: e.target.value }))} />
+          <Field label="Correo" type="email" value={d.email} onChange={(e: any) => setD(p => ({ ...p, email: e.target.value }))} />
+        </div>
+        {user.role === 'medico' && (
+          <>
+            <div className="space-y-1.5">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Especialidad</label>
+              <select value={d.specialization} onChange={e => setD(p => ({ ...p, specialization: e.target.value }))}
+                className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-white text-sm outline-none">
+                <option value="">Seleccionar...</option>
+                {Object.keys(SPECIALIZATION_PRICES).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Días de Descanso</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DIAS_SEMANA.map(day => (
+                  <button key={day} type="button" onClick={() => toggleRest(day)}
+                    className={cn('px-3 py-1.5 rounded-lg text-[9px] font-bold border transition-all', d.restDays.includes(day) ? 'bg-red-500/15 text-red-400 border-red-500/25' : 'bg-white/[0.03] text-gray-600 border-white/5 hover:border-white/10')}>
+                    {day}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        <button onClick={() => { const data: any = { ...d, name: d.name.toUpperCase() }; if (!d.password.trim()) delete data.password; onConfirm(data); }}
+          className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+          Guardar Cambios
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// CREATE APPT — TRIAJE IA ORIGINAL INTACTO
+// ══════════════════════════════════════════════════════════════
+function CreateApptModal({ profile, onClose, onConfirm }: any) {
+  const [step, setStep] = React.useState(1);
+  const [symptoms, setSymptoms] = React.useState('');
+  const [triageResult, setTriageResult] = React.useState<{ urgency: string; specialization: string } | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [d, setD] = React.useState({ date: '', time: '' });
+
+  const runTriage = async () => {
+    if (!symptoms.trim()) return;
+    setLoading(true);
+    try {
+      const resp = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-preview-04-17',
+        contents: `Analiza los siguientes síntomas médicos y determina la urgencia (BAJA, MEDIA, ALTA) y la especialidad médica más adecuada de esta lista: ${Object.keys(SPECIALIZATION_PRICES).join(', ')}. Responde solo en formato JSON con las llaves "urgency" y "specialization". Síntomas: ${symptoms}`,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: { urgency: { type: Type.STRING }, specialization: { type: Type.STRING } },
+            required: ['urgency', 'specialization'],
+          },
+        },
+      });
+      const result = JSON.parse(resp.text || '{}');
+      setTriageResult(result);
+      setStep(2);
+    } catch {
+      setTriageResult({ urgency: 'MEDIA', specialization: 'Medicina General' });
+      setStep(2);
+    }
+    setLoading(false);
+  };
+
+  const price = triageResult ? (SPECIALIZATION_PRICES[triageResult.specialization] || DEFAULT_PRICE) : DEFAULT_PRICE;
+
+  return (
+    <Modal title="Agendar Cita — Triaje IA" onClose={onClose}>
+      <div className="space-y-5">
+        {step === 1 && (
+          <>
+            <div className="flex gap-3 bg-blue-500/5 border border-blue-500/15 rounded-xl p-4">
+              <Activity size={14} className="text-blue-400 shrink-0 mt-0.5" />
+              <p className="text-[10px] text-blue-300/80 leading-relaxed">Describe tus síntomas. La IA determinará la urgencia y especialidad adecuada automáticamente.</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Síntomas</label>
+              <textarea value={symptoms} onChange={e => setSymptoms(e.target.value)} rows={5} placeholder="Ej: Dolor fuerte en el pecho al caminar..."
+                className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none" />
+            </div>
+            <button onClick={runTriage} disabled={loading || !symptoms.trim()}
+              className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-40 flex items-center justify-center gap-2">
+              {loading ? <><RefreshCw size={14} className="animate-spin" /> Analizando...</> : <><Activity size={14} /> Iniciar Triaje IA</>}
+            </button>
+          </>
+        )}
+
+        {step === 2 && triageResult && (
+          <>
+            <div className={cn('p-6 rounded-xl border text-center', triageResult.urgency === 'ALTA' ? 'bg-red-500/5 border-red-500/20' : triageResult.urgency === 'MEDIA' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-emerald-500/5 border-emerald-500/20')}>
+              <p className="text-[9px] uppercase font-black tracking-widest text-gray-500 mb-1">Urgencia Detectada</p>
+              <UrgencyBadge u={triageResult.urgency as Urgency} />
+              <p className="text-white font-black text-xl mt-3">{triageResult.specialization}</p>
+              <p className="text-emerald-400 font-black mt-2">S/ {price.toFixed(2)}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Fecha" type="date" value={d.date} onChange={(e: any) => setD(p => ({ ...p, date: e.target.value }))} />
+              <Field label="Hora" type="time" value={d.time} onChange={(e: any) => setD(p => ({ ...p, time: e.target.value }))} />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => onConfirm({ name: profile.name, dni: profile.dni, service: triageResult.specialization, urgency: triageResult.urgency, symptoms, ...d }, true)}
+                className="flex-1 bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+                Pagar S/{price.toFixed(2)}
+              </button>
+              <button onClick={() => onConfirm({ name: profile.name, dni: profile.dni, service: triageResult.specialization, urgency: triageResult.urgency, symptoms, ...d }, false)}
+                className="flex-1 border border-white/10 text-white font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-white/[0.05] transition-colors">
+                Pago en Clínica
+              </button>
+            </div>
+            <button onClick={() => setStep(1)} className="w-full text-[9px] text-gray-600 hover:text-gray-400 uppercase tracking-widest transition-colors">← Modificar síntomas</button>
+          </>
+        )}
       </div>
     </Modal>
   );
 }
 
 function ScheduleModal({ onClose, onConfirm }: any) {
-  const [d, setD] = useState({ days: [] as string[], type: 'DISPONIBLE', startTime: '08:00', endTime: '16:00', specialty: 'Medicina General' });
-  const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  const [d, setD] = React.useState({ days: [] as string[], type: 'DISPONIBLE', startTime: '08:00', endTime: '16:00', specialty: 'Medicina General' });
   return (
-    <Modal title="Módulo de Planificación" onClose={onClose}>
-      <div className="space-y-8">
-        <div className="flex gap-3 bg-white/5 p-2 rounded-2xl border border-white/5">
-          <button onClick={() => setD({ ...d, type: 'DISPONIBLE' })} className={cn("flex-1 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", d.type === 'DISPONIBLE' ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/20 scale-[1.02]" : "text-gray-500 hover:text-white")}>Disponible (Activo)</button>
-          <button onClick={() => setD({ ...d, type: 'DESCANSO' })} className={cn("flex-1 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", d.type === 'DESCANSO' ? "bg-red-500 text-white shadow-lg shadow-red-500/20 scale-[1.02]" : "text-gray-500 hover:text-white")}>Día Libre (Off)</button>
+    <Modal title="Agregar Turno / Descanso" onClose={onClose}>
+      <div className="space-y-5">
+        <div className="flex gap-1.5 bg-[#0a0a0a] p-1.5 rounded-xl border border-white/5">
+          {['DISPONIBLE', 'DESCANSO'].map(t => (
+            <button key={t} onClick={() => setD(p => ({ ...p, type: t }))}
+              className={cn('flex-1 py-2.5 rounded-lg text-[9px] font-black uppercase transition-all', d.type === t ? t === 'DESCANSO' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' : 'text-gray-500 hover:text-white')}>
+              {t === 'DISPONIBLE' ? '✅ Disponible' : '🔴 Día Libre'}
+            </button>
+          ))}
         </div>
-
-        <div className="space-y-3">
-          <label className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Selección Multidía</label>
-          <div className="flex flex-wrap gap-2.5">
-            {days.map(x => <button key={x} onClick={() => setD({ ...d, days: d.days.includes(x) ? d.days.filter(y => y !== x) : [...d.days, x] })} className={cn("px-4 py-2.5 rounded-xl text-[10px] font-bold border transition-colors shadow-sm", d.days.includes(x) ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400" : "bg-[#0a0a0a] border-white/10 text-gray-500 hover:bg-white/5")}>{x}</button>)}
+        <div className="space-y-2">
+          <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Días (selección múltiple)</label>
+          <div className="flex flex-wrap gap-1.5">
+            {DIAS_SEMANA.map(day => (
+              <button key={day} type="button" onClick={() => setD(p => ({ ...p, days: p.days.includes(day) ? p.days.filter(x => x !== day) : [...p.days, day] }))}
+                className={cn('px-3 py-1.5 rounded-lg text-[9px] font-bold border transition-all', d.days.includes(day) ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' : 'bg-white/[0.03] text-gray-600 border-white/5 hover:border-white/10')}>
+                {day}
+              </button>
+            ))}
           </div>
         </div>
-
         {d.type === 'DISPONIBLE' && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-6 pt-6 border-t border-white/5">
-            <div className="space-y-2">
-              <label className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Especialidad a Ejercer</label>
-              <select value={d.specialty} onChange={e => setD({ ...d, specialty: e.target.value })} className="w-full bg-[#0a0a0a] border border-white/10 py-4 px-5 rounded-2xl text-white outline-none text-sm focus:border-emerald-500/50 shadow-inner">
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Hora Inicio" type="time" value={d.startTime} onChange={(e: any) => setD(p => ({ ...p, startTime: e.target.value }))} />
+              <Field label="Hora Fin" type="time" value={d.endTime} onChange={(e: any) => setD(p => ({ ...p, endTime: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Especialidad</label>
+              <select value={d.specialty} onChange={e => setD(p => ({ ...p, specialty: e.target.value }))}
+                className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-white text-sm outline-none">
                 {Object.keys(SPECIALIZATION_PRICES).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-6">
-              <InputGroup label="Entrada" type="time" value={d.startTime} onChange={(e: any) => setD({ ...d, startTime: e.target.value })} />
-              <InputGroup label="Salida" type="time" value={d.endTime} onChange={(e: any) => setD({ ...d, endTime: e.target.value })} />
-            </div>
-          </motion.div>
+          </>
         )}
-        <button onClick={() => onConfirm(d)} disabled={d.days.length === 0} className="w-full bg-emerald-500 text-black py-5 rounded-2xl font-black uppercase tracking-widest text-xs disabled:opacity-50 hover:opacity-90 transition-opacity shadow-[0_10px_20px_rgba(16,185,129,0.2)] mt-6">Confirmar Inserción</button>
+        <button onClick={() => onConfirm(d)} disabled={d.days.length === 0}
+          className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-40">
+          Confirmar Turno{d.days.length > 1 ? `s (${d.days.length})` : ''}
+        </button>
       </div>
     </Modal>
   );
