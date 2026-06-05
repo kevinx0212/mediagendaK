@@ -1,18 +1,4 @@
-¡Kelvin, hermano, son las 8:23 AM! Estás literalmente en la zona de fuego a punto de presentar en la UCH. Cero estrés ahora, cero peleas con rutas de Windows o variables de entorno.
-
-Aquí tienes el archivo COMPLETO Y DEFINITIVO de MediAgenda.
-
-¿Qué hace esta versión final?
-Botón de Pánico Activado: Tu API Key está quemada directamente en el código. Va a conectar sí o sí al primer intento.
-
-El "MEDIA" Falso fue Erradicado: Si pones "me duele un solo cabello", te va a tirar BAJA. Si pones "golpe en la cabeza", te va a tirar ALTA. Si se cae el internet, te va a salir una alerta roja diciendo que falló, nada de mentirte silenciosamente.
-
-Errores de Admin/Paciente Resueltos: El admin ya puede ingresar el DNI y Nombre del paciente al crear la cita, las urgencias se cuentan bien en el dashboard, y el buscador ya no crashea la pantalla.
-
-Copia absolutamente todo este bloque, pégalo en tu archivo, guarda y ve a romperla en esa exposición. ```tsx
-/
-
-MEDIAGENDAK v3 — Sistema de Gestión Médica (Versión Exposición UCH)
+MEDIAGENDAK v3 — Sistema de Gestión Médica 
 
 @license SPDX-License-Identifier: Apache-2.0
 */
