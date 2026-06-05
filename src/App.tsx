@@ -7,7 +7,7 @@ import {
   Calendar, User as UserIcon, CreditCard, CheckCircle2, Plus, LogOut,
   LayoutDashboard, Settings, Wallet, Stethoscope, ShieldCheck, UserPlus,
   Trash2, Search, Clock, XCircle, RefreshCw, Filter, Users, ChevronRight,
-  AlertCircle, MessageCircle, Archive, Edit, Send, BarChart3, FileText, Activity
+  AlertCircle, MessageCircle, Archive, Edit, Send, BarChart3, FileText, Activity, History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -16,6 +16,7 @@ import { cn } from './lib/utils';
 // @ts-ignore
 const ai = new GoogleGenAI({ apiKey: (import.meta as any).env.VITE_GEMINI_API_KEY });
 
+// --- Types ---
 type Role = 'admin' | 'medico' | 'patient';
 type ApptStatus = 'PENDING' | 'PAID' | 'CANCELLED' | 'COMPLETED';
 
@@ -51,6 +52,7 @@ const SPECIALIZATION_PRICES: Record<string, number> = {
 };
 const DEFAULT_PRICE = 50.00;
 
+// --- Subcomponents ---
 const Badge = ({ children, status }: { children: React.ReactNode, status: ApptStatus | string }) => {
   const styles: Record<string, string> = {
     PENDING: "bg-amber-500/10 text-amber-500 border-amber-500/20",
@@ -61,7 +63,7 @@ const Badge = ({ children, status }: { children: React.ReactNode, status: ApptSt
     MEDIA: "bg-amber-500/10 text-amber-500 border-amber-500/20 font-bold",
     BAJA: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
   };
-  return <span className={cn("px-2.5 py-1 rounded-full text-[9px] uppercase tracking-widest border", styles[status] || "bg-gray-500/10 text-gray-500 border-gray-500/20")}>{children}</span>;
+  return <span className={cn("px-2.5 py-1 rounded-md text-[9px] uppercase tracking-widest border", styles[status] || "bg-gray-500/10 text-gray-500 border-gray-500/20")}>{children}</span>;
 };
 
 const InputGroup = ({ label, ...props }: any) => (
@@ -71,6 +73,7 @@ const InputGroup = ({ label, ...props }: any) => (
   </div>
 );
 
+// --- Main App ---
 export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -83,6 +86,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
+  // Modals
   const [showPaymentDialog, setShowPaymentDialog] = useState<Appointment | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState<Appointment | null>(null);
   const [showReprogramDialog, setShowReprogramDialog] = useState<Appointment | null>(null);
@@ -94,6 +98,7 @@ export default function App() {
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [showExternalSupport, setShowExternalSupport] = useState(false);
 
+  // Auth
   const [authTab, setAuthTab] = useState<Role>('admin');
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
@@ -101,6 +106,7 @@ export default function App() {
   const [formPatientDni, setFormPatientDni] = useState('');
   const [authError, setAuthError] = useState('');
 
+  // INIT
   useEffect(() => {
     const savedProfile = sessionStorage.getItem('clinica_profile');
     const savedUsers = localStorage.getItem('clinica_users');
@@ -127,6 +133,7 @@ export default function App() {
     setLoading(false);
   }, []);
 
+  // PERSISTENCE
   useEffect(() => {
     if (!loading) {
       localStorage.setItem('clinica_users', JSON.stringify(users));
@@ -220,17 +227,17 @@ export default function App() {
   if (!profile) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-[440px]">
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-emerald-500/10 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.1)]"><Activity className="text-emerald-500" size={36} /></div>
             <h1 className="text-4xl font-black text-white italic tracking-tighter">MEDIAGENDAK</h1>
-            <p className="text-gray-500 text-[10px] uppercase tracking-[0.3em] font-black mt-2">Sistema Clínico</p>
+            <p className="text-gray-500 text-[10px] uppercase tracking-[0.3em] font-black mt-2">Plataforma Empresarial</p>
           </div>
           <div className="bg-[#141414] border border-white/5 rounded-[32px] overflow-hidden shadow-2xl">
             <div className="flex border-b border-white/5 bg-white/[0.02]">
               {(['admin', 'medico', 'patient'] as Role[]).map(role => (
                 <button key={role} onClick={() => { setAuthTab(role); setAuthError(''); }} className={cn("flex-1 py-5 text-[10px] font-black tracking-widest uppercase relative transition-colors", authTab === role ? "text-white" : "text-gray-600 hover:text-gray-400")}>
-                  {role === 'admin' ? 'Gestión' : role === 'medico' ? 'Staff Médico' : 'Pacientes'}
+                  {role === 'admin' ? 'Gestión' : role === 'medico' ? 'Personal' : 'Pacientes'}
                   {authTab === role && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 shadow-[0_0_10px_#10b981]" />}
                 </button>
               ))}
@@ -239,21 +246,23 @@ export default function App() {
               {authTab === 'patient' ? (
                 <>
                   <InputGroup label="Nombre y Apellidos" type="text" value={formPatientName} onChange={(e: any) => setFormPatientName(e.target.value)} placeholder="Ej. Juan Pérez" />
-                  <InputGroup label="Documento de Identidad" type="text" maxLength={15} value={formPatientDni} onChange={(e: any) => setFormPatientDni(e.target.value)} placeholder="DNI o CE" />
+                  <InputGroup label="Documento de Identidad" type="text" maxLength={15} value={formPatientDni} onChange={(e: any) => setFormPatientDni(e.target.value)} placeholder="DNI, CE o Pasaporte" />
                 </>
               ) : (
                 <>
-                  <InputGroup label="Usuario Asignado" type="text" value={formUsername} onChange={(e: any) => setFormUsername(e.target.value)} placeholder="Ej. admin_01" />
+                  <InputGroup label="Usuario Corporativo" type="text" value={formUsername} onChange={(e: any) => setFormUsername(e.target.value)} placeholder="ID de Empleado" />
                   <InputGroup label="Contraseña" type="password" value={formPassword} onChange={(e: any) => setFormPassword(e.target.value)} placeholder="••••••••" />
                 </>
               )}
               {authError && <p className="text-red-400 text-[10px] bg-red-500/10 border border-red-500/20 p-3 rounded-xl font-bold text-center flex justify-center items-center gap-2"><AlertCircle size={14} /> {authError}</p>}
-              <button type="submit" className="w-full bg-emerald-500 text-black font-black py-4 rounded-xl uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Ingresar al Sistema</button>
+              <button type="submit" className="w-full bg-emerald-500 text-black font-black py-4 rounded-xl uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Ingresar a la Plataforma</button>
+
               {authTab === 'patient' && <button type="button" onClick={() => setShowExternalSupport(true)} className="w-full text-[10px] text-gray-500 uppercase tracking-widest hover:text-white transition-colors pt-2">¿Problemas de acceso? Soporte ATC</button>}
             </form>
           </div>
         </motion.div>
 
+        {/* Modal Soporte Externo */}
         <AnimatePresence>
           {showExternalSupport && (
             <Modal title="Soporte Técnico ATC" onClose={() => setShowExternalSupport(false)}>
@@ -287,8 +296,9 @@ export default function App() {
           <nav className="space-y-2">
             {profile.role === 'patient' ? (
               <>
-                <NavBtn id="citas" icon={<Calendar size={18} />} label="Mis Citas" currentView={currentView} setView={setCurrentView} />
-                <NavBtn id="pagos" icon={<CreditCard size={18} />} label="Finanzas" currentView={currentView} setView={setCurrentView} />
+                <NavBtn id="citas" icon={<Calendar size={18} />} label="Mis Citas Activas" currentView={currentView} setView={setCurrentView} />
+                <NavBtn id="historial-paciente" icon={<History size={18} />} label="Mi Historial Clínico" currentView={currentView} setView={setCurrentView} />
+                <NavBtn id="pagos" icon={<CreditCard size={18} />} label="Finanzas y Vouchers" currentView={currentView} setView={setCurrentView} />
                 <NavBtn id="mensajes" icon={<MessageCircle size={18} />} label="Soporte ATC" currentView={currentView} setView={setCurrentView} />
                 <div className="h-px bg-white/5 my-4 mx-2"></div>
                 <NavBtn id="informacion" icon={<UserIcon size={18} />} label="Ajustes de Perfil" currentView={currentView} setView={setCurrentView} />
@@ -300,13 +310,13 @@ export default function App() {
                 <div className="h-px bg-white/5 my-4 mx-2"></div>
                 {profile.role === 'admin' && (
                   <>
-                    <NavBtn id="historial" icon={<Archive size={18} />} label="Historial BD" currentView={currentView} setView={setCurrentView} />
-                    <NavBtn id="horarios" icon={<Clock size={18} />} label="Horarios" currentView={currentView} setView={setCurrentView} />
-                    <NavBtn id="usuarios" icon={<Users size={18} />} label="Usuarios" currentView={currentView} setView={setCurrentView} />
+                    <NavBtn id="historial" icon={<Archive size={18} />} label="Historial Global BD" currentView={currentView} setView={setCurrentView} />
+                    <NavBtn id="horarios" icon={<Clock size={18} />} label="Gestión de Horarios" currentView={currentView} setView={setCurrentView} />
+                    <NavBtn id="usuarios" icon={<Users size={18} />} label="Directorio Usuarios" currentView={currentView} setView={setCurrentView} />
                     <NavBtn id="atc" icon={<MessageCircle size={18} />} label="Reclamos ATC" currentView={currentView} setView={setCurrentView} />
                   </>
                 )}
-                {profile.role === 'medico' && <NavBtn id="horarios" icon={<Clock size={18} />} label="Mi Horario" currentView={currentView} setView={setCurrentView} />}
+                {profile.role === 'medico' && <NavBtn id="horarios" icon={<Clock size={18} />} label="Mi Horario Médico" currentView={currentView} setView={setCurrentView} />}
               </>
             )}
           </nav>
@@ -319,7 +329,7 @@ export default function App() {
 
       <main className="flex-1 flex flex-col min-w-0 relative z-10">
         <header className="h-20 border-b border-white/5 flex items-center justify-between px-8 bg-[#0a0a0a]/90 sticky top-0 z-40 backdrop-blur-xl">
-          <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white flex items-center gap-2"><LayoutDashboard size={14} className="text-emerald-500" /> {currentView}</h2>
+          <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white flex items-center gap-2"><LayoutDashboard size={14} className="text-emerald-500" /> {currentView.replace('-', ' ')}</h2>
           <div className="flex items-center gap-4">
             <span className="px-4 py-1.5 bg-white/5 rounded-lg text-[9px] font-black uppercase text-emerald-500 border border-emerald-500/20 tracking-widest">{profile.role}</span>
             {profile.role !== 'medico' && <button onClick={() => setShowCreateApptDialog(true)} className="bg-emerald-500 text-black px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors"><Plus size={14} /> Nueva Cita</button>}
@@ -330,7 +340,8 @@ export default function App() {
           <div className="max-w-7xl mx-auto">
             {currentView === 'dashboard' && profile.role !== 'patient' && <DashboardView appointments={appointments} />}
             {currentView === 'citas' && <CitasView profile={profile} appointments={sortedAppointments} allAppointments={appointments} searchTerm={searchTerm} setSearchTerm={setSearchTerm} filterStatus={filterStatus} setFilterStatus={setFilterStatus} onPay={setShowPaymentDialog} onCancel={(a: any) => setShowCancelDialog(a)} onReprogram={(a: any) => setShowReprogramDialog(a)} onComplete={(a: any) => setShowCompleteDialog(a)} onDelete={(id: string) => { setAppointments(appointments.filter(a => a.id !== id)) }} onAddRecipe={(a: any) => setShowRecipeDialog(a)} />}
-            {currentView === 'historial' && profile.role === 'admin' && <HistorialView appointments={appointments} onDelete={(id: string) => { setAppointments(appointments.filter(a => a.id !== id)) }} />}
+            {currentView === 'historial-paciente' && profile.role === 'patient' && <HistorialPacienteView appointments={appointments.filter(a => a.userId === profile.id && a.status === 'COMPLETED')} />}
+            {currentView === 'historial' && profile.role === 'admin' && <HistorialGlobalView appointments={appointments} onDelete={(id: string) => { setAppointments(appointments.filter(a => a.id !== id)) }} />}
             {currentView === 'atc' && profile.role === 'admin' && <ATCAdminView messages={messages} onReply={(id: string, r: string) => setMessages(messages.map(m => m.id === id ? { ...m, reply: r, isRead: true } : m))} />}
             {currentView === 'mensajes' && profile.role === 'patient' && <ATCPatientView profile={profile} messages={messages} onSend={(d: any) => setMessages([{ id: Math.random().toString(), senderName: d.name, senderDni: d.dni, content: d.content, date: new Date().toISOString(), isRead: false }, ...messages])} />}
             {currentView === 'pagos' && profile.role === 'patient' && <PagosPendientesView appointments={appointments.filter(a => a.userId === profile.id)} onPay={setShowPaymentDialog} onViewVoucher={setShowVoucherDialog} />}
@@ -422,7 +433,6 @@ function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterSta
                 <p className="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/5"><Calendar size={14} className="text-emerald-500" /> {a.date} • {a.time}</p>
                 <p className={cn("flex items-center gap-2 p-2 rounded-lg border border-white/5", a.urgency === 'ALTA' ? 'bg-red-500/10 text-red-400' : 'bg-white/5')}><Activity size={14} /> Prioridad: {a.urgency}</p>
               </div>
-              {a.notes && <div className="p-4 bg-blue-500/10 rounded-2xl border border-blue-500/20 mb-6 text-xs text-gray-300 italic">"{a.notes}"</div>}
 
               {a.status === 'PENDING' && (
                 <div className="space-y-3 relative z-10">
@@ -464,7 +474,29 @@ function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterSta
   );
 }
 
-function HistorialView({ appointments, onDelete }: any) {
+function HistorialPacienteView({ appointments }: any) {
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-3"><History className="text-blue-500" /> Mi Historial Clínico</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {appointments.map((a: any) => (
+          <div key={a.id} className="p-8 bg-[#141414] border border-white/5 rounded-[32px] relative overflow-hidden group">
+            <div className="flex justify-between items-start mb-6"><h4 className="font-black text-xl text-white uppercase">{a.service}</h4><Badge status="COMPLETED">Atendido</Badge></div>
+            <p className="text-xs text-gray-400 mb-2"><Calendar className="inline mr-2 text-emerald-500" size={14} />{a.date}</p>
+            <p className="text-xs text-gray-400 mb-6"><Stethoscope className="inline mr-2 text-emerald-500" size={14} />Dr. {a.medicoNameAttended}</p>
+            <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+              <p className="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-2 flex items-center gap-2"><FileText size={12} /> Diagnóstico / Receta</p>
+              <p className="text-sm text-gray-300 italic">"{a.notes || 'No se registraron notas en esta consulta.'}"</p>
+            </div>
+          </div>
+        ))}
+        {appointments.length === 0 && <p className="col-span-full text-center p-12 border border-dashed border-white/10 rounded-[32px] text-gray-500 italic">No tienes un historial clínico registrado aún.</p>}
+      </div>
+    </div>
+  );
+}
+
+function HistorialGlobalView({ appointments, onDelete }: any) {
   const history = appointments.filter((a: any) => a.status === 'CANCELLED' || a.status === 'COMPLETED');
   return (
     <div className="space-y-6">
@@ -628,7 +660,13 @@ function HorariosView({ schedules, setSchedules, profile, onAdd }: any) {
             <h4 className={cn("font-black text-2xl mb-2 tracking-tighter", s.type === 'DESCANSO' ? 'text-red-300' : 'text-white')}>{s.type === 'DESCANSO' ? 'LIBRE' : `${s.startTime} - ${s.endTime}`}</h4>
             <p className="text-[10px] text-gray-500 uppercase font-bold mt-4">Dr. {s.medicoName}</p>
             {s.specialty && s.type !== 'DESCANSO' && <p className="text-[9px] text-blue-400 uppercase tracking-widest mt-1.5">{s.specialty}</p>}
-            {profile?.role === 'admin' && <button onClick={() => setSchedules(schedules.filter((x: any) => x.id !== s.id))} className="mt-8 w-full py-3 bg-red-500/10 border border-red-500/20 text-[9px] text-red-500 font-black uppercase tracking-widest rounded-xl hover:bg-red-500/20 transition-colors">Purgar Bloque</button>}
+
+            {/* AQUÍ ESTÁ LA CORRECCIÓN DEL BOTÓN DE ELIMINAR TURNO PARA EL MÉDICO */}
+            {(profile?.role === 'admin' || profile?.id === s.medicoId) && (
+              <button onClick={() => setSchedules(schedules.filter((x: any) => x.id !== s.id))} className="mt-8 w-full py-3 bg-red-500/10 border border-red-500/20 text-[9px] text-red-500 font-black uppercase tracking-widest rounded-xl hover:bg-red-500/20 transition-colors">
+                Eliminar Turno
+              </button>
+            )}
           </div>
         ))}
         {schedules.length === 0 && <p className="col-span-full text-center p-12 border border-dashed border-white/10 rounded-[32px] text-gray-500 italic">No hay asignaciones horarias en la base de datos.</p>}
