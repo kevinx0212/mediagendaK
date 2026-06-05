@@ -1,5 +1,5 @@
 /**
- * MEDIAGENDAK v3 — Sistema de Gestión Médica
+ * MEDIAGENDAK v3 — Sistema de Gestión Médica (Versión Corregida y Optimizada)
  * @license SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, useRef } from 'react';
@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Settings, Wallet, Stethoscope, ShieldCheck, UserPlus,
   Trash2, Search, Clock, XCircle, RefreshCw, Filter, Users,
   AlertCircle, MessageSquare, Edit2, Archive, Activity, FileText,
-  History, BarChart3, ChevronDown, Bell
+  History, BarChart3, ChevronDown, Bell, Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -55,7 +55,6 @@ interface SupportMessage {
 // ─────────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0];
 const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -66,7 +65,7 @@ const SPECIALIZATION_PRICES: Record<string, number> = {
 };
 const DEFAULT_PRICE = 50.00;
 
-// Demo appointments: 2 ALTA, 2 MEDIA, 2 BAJA
+// Demo appointments actualizados para coincidir con pruebas
 const DEMO_APPOINTMENTS: Appointment[] = [
   { id: 'a1', patientName: 'CARLOS MENDOZA', patientDni: '11223344', date: today, time: '08:30', service: 'Cardiología', paymentStatus: 'PENDING', status: 'PENDING', amount: 120, userId: 'p1', urgency: 'ALTA', symptoms: 'Dolor intenso en el pecho y dificultad para respirar.' },
   { id: 'a2', patientName: 'ANA TORRES', patientDni: '22334455', date: today, time: '09:00', service: 'Neurología', paymentStatus: 'PAID', status: 'PAID', amount: 130, userId: 'p2', urgency: 'ALTA', symptoms: 'Pérdida repentina de visión y mareos severos.', paymentMethod: 'YAPE', reference: 'TRX-9981' },
@@ -115,7 +114,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('ALL');
-  const [isDarkMode] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile Nav State
 
   // Modals
   const [payDlg, setPayDlg] = useState<Appointment | null>(null);
@@ -175,9 +174,11 @@ export default function App() {
       const dniClean = formDni.trim();
       const namClean = formName.trim().toUpperCase();
       if (dniClean.length < 8 || dniClean.length > 15) { setAuthError('DNI debe tener 8 dígitos. CE entre 9 y 15.'); return; }
+
+      // Corregido: Validación estricta para login de paciente
       const existing = users.find(u => u.role === 'patient' && u.dni === dniClean);
       if (existing) {
-        if (existing.name.toUpperCase() !== namClean) { setAuthError('El nombre no coincide con el DNI/CE registrado.'); return; }
+        if (existing.name.toUpperCase() !== namClean) { setAuthError('El nombre no coincide con el documento registrado.'); return; }
         doLogin(existing);
       } else {
         if (!namClean) { setAuthError('Ingresa tu nombre completo.'); return; }
@@ -200,7 +201,9 @@ export default function App() {
   // ── APPOINTMENT ACTIONS ──
   const createAppointment = (data: any, payNow: boolean) => {
     const price = SPECIALIZATION_PRICES[data.service] || DEFAULT_PRICE;
-    const na: Appointment = { id: `a${Date.now()}`, patientName: data.name, patientDni: data.dni, date: data.date, time: data.time, service: data.service, paymentStatus: 'PENDING', status: 'PENDING', amount: price, userId: profile?.id || 'guest', urgency: data.urgency, symptoms: data.symptoms };
+    // user ID is linked properly whether admin creates it or patient
+    const userIdToUse = profile?.role === 'patient' ? profile.id : `p_guest_${Date.now()}`;
+    const na: Appointment = { id: `a${Date.now()}`, patientName: data.name, patientDni: data.dni, date: data.date, time: data.time, service: data.service, paymentStatus: 'PENDING', status: 'PENDING', amount: price, userId: userIdToUse, urgency: data.urgency, symptoms: data.symptoms };
     setAppointments(p => [na, ...p]);
     setCreateApptDlg(false);
     if (payNow) setPayDlg(na);
@@ -241,13 +244,12 @@ export default function App() {
   };
   const deleteUser = (id: string) => { if (id === 'admin-1') return; setUsers(p => p.filter(u => u.id !== id)); };
 
-  // ── SCHEDULE ACTIONS — Only admin can delete ──
+  // ── SCHEDULE ACTIONS ──
   const addSchedule = (data: any) => {
     const news = data.days.map((day: string) => ({ id: `s${Date.now()}${day}`, medicoId: profile?.id, medicoName: profile?.name, day, startTime: data.startTime, endTime: data.endTime, type: data.type, specialty: data.specialty }));
     setSchedules(p => [...p, ...news]);
     setScheduleDlg(false);
   };
-  // Only admin can delete schedules — medico CANNOT
   const deleteSchedule = (id: string) => { if (profile?.role !== 'admin') return; setSchedules(p => p.filter(s => s.id !== id)); };
 
   // ── MESSAGES ──
@@ -258,15 +260,17 @@ export default function App() {
     setMessages(p => p.map(m => m.id === id ? { ...m, reply, isRead: true } : m));
   };
 
-  // ── FILTERS ──
+  // ── FILTERS & DATA ──
   const activeAppts = appointments.filter(a => a.status !== 'CANCELLED' && a.status !== 'COMPLETED');
   const myAppts = profile?.role === 'patient' ? appointments.filter(a => a.userId === profile.id) : activeAppts;
   const sortedAppts = [...myAppts].sort((a, b) => {
     const w = { ALTA: 3, MEDIA: 2, BAJA: 1 };
     return (w[b.urgency || 'BAJA'] || 0) - (w[a.urgency || 'BAJA'] || 0);
   });
+
+  // Corregido: Buscador crash prevention (a.patientDni || '')
   const filteredAppts = sortedAppts.filter(a => {
-    const ms = a.patientName.toLowerCase().includes(searchTerm.toLowerCase()) || a.patientDni.includes(searchTerm);
+    const ms = (a.patientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || (a.patientDni || '').includes(searchTerm);
     if (filterStatus === 'ALL') return ms;
     if (filterStatus === 'TODAY') return ms && a.date === today;
     if (['PENDING', 'PAID'].includes(filterStatus)) return ms && a.status === filterStatus;
@@ -336,7 +340,7 @@ export default function App() {
 
             <div className="px-8 pb-6 text-center border-t border-white/5 pt-4">
               {authTab === 'patient' ? (
-                <a href="mailto:kelcardozabr@uch.pe" className="text-emerald-500 text-[10px] font-bold hover:underline">kelcardozabr@uch.pe</a>
+                <a href="mailto:soporte@mediagenda.com" className="text-emerald-500 text-[10px] font-bold hover:underline">soporte@mediagenda.com</a>
               ) : (
                 <p className="text-gray-600 text-[9px] uppercase tracking-widest">Solo personal autorizado</p>
               )}
@@ -359,10 +363,19 @@ export default function App() {
   // MAIN LAYOUT
   // ─────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex bg-[#060606] text-gray-300 font-sans">
-      {/* ── Sidebar ── */}
-      <aside className="w-[260px] border-r border-white/5 bg-[#0a0a0a] flex flex-col shrink-0 hidden lg:flex">
-        <div className="p-7">
+    <div className="min-h-screen flex bg-[#060606] text-gray-300 font-sans overflow-hidden">
+
+      {/* ── Sidebar (Corregido para Móvil) ── */}
+      <aside className={cn(
+        "w-[260px] border-r border-white/5 bg-[#0a0a0a] flex flex-col shrink-0 fixed lg:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out lg:transform-none",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+      )}>
+        <div className="p-7 relative">
+          {/* Cierre en móvil */}
+          <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden absolute top-6 right-6 text-gray-500 hover:text-white">
+            <XCircle size={20} />
+          </button>
+
           {/* Logo */}
           <div className="flex items-center gap-3 mb-10">
             <div className="w-9 h-9 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
@@ -376,32 +389,32 @@ export default function App() {
           {/* Nav */}
           <nav className="space-y-1">
             {profile.role === 'patient' && <>
-              <SideItem id="citas" icon={<Calendar size={16} />} label="Mis Citas" view={currentView} setView={setCurrentView} />
-              <SideItem id="historial-paciente" icon={<History size={16} />} label="Mi Historial" view={currentView} setView={setCurrentView} />
-              <SideItem id="pagos" icon={<CreditCard size={16} />} label="Pagos y Vouchers" view={currentView} setView={setCurrentView} />
-              <SideItem id="mensajes" icon={<MessageSquare size={16} />} label="Soporte ATC" view={currentView} setView={setCurrentView} />
+              <SideItem id="citas" icon={<Calendar size={16} />} label="Mis Citas" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+              <SideItem id="historial-paciente" icon={<History size={16} />} label="Mi Historial" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+              <SideItem id="pagos" icon={<CreditCard size={16} />} label="Pagos y Vouchers" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+              <SideItem id="mensajes" icon={<MessageSquare size={16} />} label="Soporte ATC" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
               <div className="h-px bg-white/5 my-3" />
-              <SideItem id="informacion" icon={<UserIcon size={16} />} label="Mi Perfil" view={currentView} setView={setCurrentView} />
+              <SideItem id="informacion" icon={<UserIcon size={16} />} label="Mi Perfil" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
             </>}
             {profile.role !== 'patient' && <>
-              <SideItem id="dashboard" icon={<LayoutDashboard size={16} />} label="Dashboard" view={currentView} setView={setCurrentView} />
-              <SideItem id="citas" icon={<Activity size={16} />} label="Citas Activas" view={currentView} setView={setCurrentView} />
+              <SideItem id="dashboard" icon={<LayoutDashboard size={16} />} label="Dashboard" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+              <SideItem id="citas" icon={<Activity size={16} />} label="Citas Activas" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
               <div className="h-px bg-white/5 my-3" />
               {profile.role === 'admin' && <>
-                <SideItem id="historial" icon={<Archive size={16} />} label="Historial Global" view={currentView} setView={setCurrentView} />
-                <SideItem id="usuarios" icon={<Users size={16} />} label="Usuarios" view={currentView} setView={setCurrentView} />
-                <SideItem id="horarios" icon={<Clock size={16} />} label="Horarios" view={currentView} setView={setCurrentView} />
-                <SideItem id="atc" icon={<MessageSquare size={16} />} label={`ATC ${unreadMsgs > 0 ? `(${unreadMsgs})` : ''}`} view={currentView} setView={setCurrentView} badge={unreadMsgs} />
+                <SideItem id="historial" icon={<Archive size={16} />} label="Historial Global" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+                <SideItem id="usuarios" icon={<Users size={16} />} label="Usuarios" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+                <SideItem id="horarios" icon={<Clock size={16} />} label="Horarios" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
+                <SideItem id="atc" icon={<MessageSquare size={16} />} label={`ATC ${unreadMsgs > 0 ? `(${unreadMsgs})` : ''}`} view={currentView} setView={setCurrentView} badge={unreadMsgs} closeMenu={() => setIsMobileMenuOpen(false)} />
               </>}
               {profile.role === 'medico' && <>
-                <SideItem id="horarios" icon={<Clock size={16} />} label="Mi Horario" view={currentView} setView={setCurrentView} />
+                <SideItem id="horarios" icon={<Clock size={16} />} label="Mi Horario" view={currentView} setView={setCurrentView} closeMenu={() => setIsMobileMenuOpen(false)} />
               </>}
             </>}
           </nav>
         </div>
 
         {/* User Info */}
-        <div className="mt-auto p-6 border-t border-white/5">
+        <div className="mt-auto p-6 border-t border-white/5 bg-[#0a0a0a]">
           <div className="flex items-center gap-3 mb-4 p-3 bg-white/[0.03] rounded-xl border border-white/5">
             <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400 font-black text-sm">{profile.name[0]}</div>
             <div className="flex-1 min-w-0">
@@ -415,23 +428,33 @@ export default function App() {
         </div>
       </aside>
 
+      {/* Overlay para móviles */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+      )}
+
       {/* ── Main ── */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
         {/* Header */}
-        <header className="h-16 border-b border-white/5 bg-[#0a0a0a]/90 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-40">
-          <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-white">{currentView.replace('-', ' ')}</h2>
+        <header className="h-16 border-b border-white/5 bg-[#0a0a0a]/90 backdrop-blur-xl flex items-center justify-between px-6 lg:px-8 z-30">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-1.5 -ml-2 text-gray-400 hover:text-white rounded-md">
+              <Menu size={20} />
+            </button>
+            <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-white hidden sm:block">{currentView.replace('-', ' ')}</h2>
+          </div>
           <div className="flex items-center gap-3">
             <span className="px-3 py-1 bg-white/[0.04] rounded-lg text-[9px] font-black uppercase text-emerald-400 border border-emerald-500/20 tracking-widest">{profile.role}</span>
             {profile.role !== 'medico' && (
-              <button onClick={() => setCreateApptDlg(true)} className="bg-emerald-500 text-black px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
-                <Plus size={13} /> Nueva Cita
+              <button onClick={() => setCreateApptDlg(true)} className="bg-emerald-500 text-black px-4 sm:px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
+                <Plus size={13} /> <span className="hidden sm:inline">Nueva Cita</span>
               </button>
             )}
           </div>
         </header>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8">
           <div className="max-w-7xl mx-auto space-y-0">
             {currentView === 'dashboard' && profile.role !== 'patient' && <DashboardView appointments={appointments} />}
             {currentView === 'citas' && (
@@ -482,7 +505,7 @@ export default function App() {
         {recipeDlg && <RecipeModal appt={recipeDlg} onClose={() => setRecipeDlg(null)} onConfirm={saveRecipe} />}
         {createUserDlg && <CreateUserModal onClose={() => setCreateUserDlg(false)} onConfirm={createUser} />}
         {editUserDlg && <EditUserModal user={editUserDlg} onClose={() => setEditUserDlg(null)} onConfirm={editUser} />}
-        {createApptDlg && <CreateApptModal profile={profile} onClose={() => setCreateApptDlg(false)} onConfirm={createAppointment} />}
+        {createApptDlg && <CreateApptModal profile={profile!} onClose={() => setCreateApptDlg(false)} onConfirm={createAppointment} />}
         {scheduleDlg && <ScheduleModal onClose={() => setScheduleDlg(false)} onConfirm={addSchedule} />}
       </AnimatePresence>
     </div>
@@ -492,10 +515,10 @@ export default function App() {
 // ─────────────────────────────────────────────────────────────
 // LAYOUT HELPERS
 // ─────────────────────────────────────────────────────────────
-function SideItem({ id, icon, label, view, setView, badge }: any) {
+function SideItem({ id, icon, label, view, setView, badge, closeMenu }: any) {
   const active = view === id;
   return (
-    <button onClick={() => setView(id)}
+    <button onClick={() => { setView(id); closeMenu(); }}
       className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[11px] font-bold transition-all relative', active ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' : 'text-gray-500 hover:bg-white/[0.03] hover:text-gray-300 border border-transparent')}>
       <span className={active ? 'text-emerald-400' : 'text-gray-600'}>{icon}</span>
       <span className="flex-1 text-left">{label}</span>
@@ -519,10 +542,13 @@ function Field({ label, ...props }: any) {
 function DashboardView({ appointments }: any) {
   const paid = appointments.filter((a: any) => a.paymentStatus === 'PAID');
   const totalIncome = paid.reduce((s: number, a: any) => s + a.amount, 0);
-  const pending = appointments.filter((a: any) => a.status === 'PENDING').length;
-  const alta = appointments.filter((a: any) => a.urgency === 'ALTA' && a.status === 'PENDING').length;
 
-  const todayAppts = appointments.filter((a: any) => a.date === today && a.status !== 'CANCELLED').sort((x: any, y: any) => { const w: Record<string, number> = { ALTA: 3, MEDIA: 2, BAJA: 1 }; return (w[y.urgency] || 0) - (w[x.urgency] || 0); });
+  const activeAppts = appointments.filter((a: any) => a.status !== 'CANCELLED' && a.status !== 'COMPLETED');
+  const pending = activeAppts.filter((a: any) => a.status === 'PENDING').length;
+  // Corregido: Urgencias Alta cuentan independientemente de si están pagadas, mientras no estén canceladas ni completadas.
+  const alta = activeAppts.filter((a: any) => a.urgency === 'ALTA').length;
+
+  const todayAppts = activeAppts.filter((a: any) => a.date === today).sort((x: any, y: any) => { const w: Record<string, number> = { ALTA: 3, MEDIA: 2, BAJA: 1 }; return (w[y.urgency] || 0) - (w[x.urgency] || 0); });
   const incomeMap: Record<string, number> = {};
   paid.forEach((a: any) => { incomeMap[a.service] = (incomeMap[a.service] || 0) + a.amount; });
   const maxVal = Math.max(...Object.values(incomeMap) as number[], 1);
@@ -530,22 +556,23 @@ function DashboardView({ appointments }: any) {
   return (
     <div className="space-y-8">
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <StatCard label="Ingresos Verificados" value={`S/ ${totalIncome.toFixed(2)}`} color="text-emerald-400" />
         <StatCard label="Citas Pendientes" value={pending} color="text-amber-400" />
         <StatCard label="Urgencias ALTA" value={alta} color="text-red-400" />
       </div>
 
       {/* Chart */}
-      <div className="bg-[#111] border border-white/5 rounded-2xl p-8">
+      <div className="bg-[#111] border border-white/5 rounded-2xl p-6 sm:p-8">
         <h3 className="text-[10px] font-black uppercase tracking-[0.25em] text-white mb-8 flex items-center gap-2">
           <BarChart3 size={14} className="text-emerald-500" /> Ingresos por Especialidad
         </h3>
-        <div className="flex items-end gap-4 h-40">
+        <div className="flex items-end gap-2 sm:gap-4 h-40">
           {Object.entries(incomeMap).map(([k, v]: any) => (
             <div key={k} className="flex-1 flex flex-col items-center justify-end h-full group">
               <span className="text-[9px] text-emerald-400 font-black mb-2 opacity-0 group-hover:opacity-100 transition-opacity">S/{v}</span>
-              <div className="w-full bg-emerald-500/20 hover:bg-emerald-500/40 rounded-t border border-emerald-500/20 transition-all" style={{ height: `${Math.max((v / maxVal) * 100, 6)}%` }} />
+              {/* Corregido: Altura mínima y cálculos correctos visuales */}
+              <div className="w-full max-w-[80px] bg-emerald-500/20 hover:bg-emerald-500/40 rounded-t border border-emerald-500/20 transition-all" style={{ height: `${Math.max((v / maxVal) * 100, 10)}%` }} />
               <span className="text-[8px] text-gray-500 mt-2 truncate w-full text-center">{k.split(' ')[0]}</span>
             </div>
           ))}
@@ -560,7 +587,7 @@ function DashboardView({ appointments }: any) {
           <h3 className="text-[10px] font-black uppercase tracking-[0.25em] text-white">Agenda de Hoy — ordenada por Urgencia</h3>
         </div>
         {todayAppts.length === 0 ? (
-          <p className="text-gray-600 text-xs italic p-8 text-center">Sin citas hoy.</p>
+          <p className="text-gray-600 text-xs italic p-8 text-center">Sin citas activas hoy.</p>
         ) : (
           <Table headers={['Hora', 'Paciente', 'Servicio', 'Urgencia', 'Estado']}>
             {todayAppts.map((a: any) => (
@@ -581,9 +608,9 @@ function DashboardView({ appointments }: any) {
 
 function StatCard({ label, value, color }: any) {
   return (
-    <div className="bg-[#111] border border-white/5 rounded-2xl p-7">
+    <div className="bg-[#111] border border-white/5 rounded-2xl p-6 sm:p-7">
       <p className="text-[9px] uppercase font-black tracking-[0.25em] text-gray-500 mb-3">{label}</p>
-      <p className={cn('text-3xl font-black tracking-tight', color)}>{value}</p>
+      <p className={cn('text-2xl sm:text-3xl font-black tracking-tight', color)}>{value}</p>
     </div>
   );
 }
@@ -595,11 +622,11 @@ function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterSta
   return (
     <div className="space-y-5">
       {/* Controls */}
-      <div className="flex flex-wrap gap-3 items-center bg-[#111] border border-white/5 rounded-2xl p-4">
-        <div className="relative">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center bg-[#111] border border-white/5 rounded-2xl p-4">
+        <div className="relative w-full sm:w-auto">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
           <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar paciente o DNI..."
-            className="bg-[#0a0a0a] border border-white/8 py-2.5 pl-9 pr-4 rounded-lg text-xs text-white outline-none focus:border-emerald-500/40 w-56 transition-colors" />
+            className="w-full sm:w-56 bg-[#0a0a0a] border border-white/8 py-2.5 pl-9 pr-4 rounded-lg text-xs text-white outline-none focus:border-emerald-500/40 transition-colors" />
         </div>
         <div className="flex gap-1.5 flex-wrap">
           {filters.map(f => (
@@ -617,7 +644,7 @@ function CitasView({ profile, appointments, searchTerm, setSearchTerm, filterSta
           {appointments.length === 0 ? <p className="text-gray-600 text-xs italic p-10 text-center">Bandeja vacía.</p> : (
             <Table headers={['Paciente', 'DNI/CE', 'Fecha', 'Hora', 'Servicio', 'Monto', 'Urgencia', 'Estado', 'Acciones']}>
               {appointments.map((a: any) => (
-                <TR key={a.id} highlight={a.urgency === 'ALTA' && a.date === today}>
+                <TR key={a.id} highlight={a.urgency === 'ALTA' && a.date === today && a.status !== 'COMPLETED' && a.status !== 'CANCELLED'}>
                   <TD bold>{a.patientName}</TD>
                   <TD mono muted>{a.patientDni}</TD>
                   <TD muted>{a.date}</TD>
@@ -739,7 +766,7 @@ function HistorialGlobalView({ appointments, onDelete }: any) {
 function UsuariosView({ users, onCreate, onEdit, onDelete }: any) {
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <SectionHeader icon={<Users size={14} className="text-blue-400" />} title={`Usuarios (${users.length})`} />
         <button onClick={onCreate} className="bg-emerald-500 text-black px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
           <UserPlus size={13} /> Nuevo Usuario
@@ -775,7 +802,7 @@ function HorariosView({ schedules, profile, onAdd, onDelete }: any) {
   const mySchedules = profile.role === 'medico' ? schedules.filter((s: any) => s.medicoId === profile.id) : schedules;
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <SectionHeader icon={<Clock size={14} className="text-emerald-400" />} title="Horarios Médicos" />
         {profile.role === 'medico' && (
           <button onClick={onAdd} className="bg-emerald-500 text-black px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors">
@@ -839,10 +866,10 @@ function ATCAdminView({ messages, onReply }: any) {
                   <p className="text-sm text-emerald-300">{m.reply}</p>
                 </div>
               ) : (
-                <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-3">
                   <input value={reply} onChange={e => setReply(e.target.value)} placeholder="Escribe la respuesta oficial..."
                     className="flex-1 bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors" />
-                  <button onClick={() => { if (reply.trim()) { onReply(m.id, reply); } }} className="bg-emerald-500 text-black px-6 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Enviar</button>
+                  <button onClick={() => { if (reply.trim()) { onReply(m.id, reply); } }} className="bg-emerald-500 text-black py-3 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">Enviar</button>
                 </div>
               )}
             </div>
@@ -1281,17 +1308,25 @@ function EditUserModal({ user, onClose, onConfirm }: any) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// CREATE APPT — TRIAJE IA ORIGINAL INTACTO
+// CREATE APPT — CORREGIDO PARA FUNCIONAR CON MEDICO/ADMIN Y PACIENTE
 // ══════════════════════════════════════════════════════════════
-function CreateApptModal({ profile, onClose, onConfirm }: any) {
+function CreateApptModal({ profile, onClose, onConfirm }: { profile: UserProfile, onClose: any, onConfirm: any }) {
+  const isAdminOrMedico = profile.role !== 'patient';
+
   const [step, setStep] = React.useState(1);
   const [symptoms, setSymptoms] = React.useState('');
+  const [manualPatient, setManualPatient] = React.useState({ name: '', dni: '' });
   const [triageResult, setTriageResult] = React.useState<{ urgency: string; specialization: string } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [d, setD] = React.useState({ date: '', time: '' });
 
   const runTriage = async () => {
     if (!symptoms.trim()) return;
+    if (isAdminOrMedico && (!manualPatient.name.trim() || !manualPatient.dni.trim())) {
+      alert("Debes ingresar el nombre y DNI del paciente.");
+      return;
+    }
+
     setLoading(true);
     try {
       const resp = await ai.models.generateContent({
@@ -1316,6 +1351,21 @@ function CreateApptModal({ profile, onClose, onConfirm }: any) {
     setLoading(false);
   };
 
+  const handleConfirm = (payNow: boolean) => {
+    const pName = isAdminOrMedico ? manualPatient.name.toUpperCase() : profile.name;
+    const pDni = isAdminOrMedico ? manualPatient.dni : profile.dni;
+
+    onConfirm({
+      name: pName,
+      dni: pDni,
+      service: triageResult?.specialization,
+      urgency: triageResult?.urgency,
+      symptoms,
+      date: d.date,
+      time: d.time
+    }, payNow);
+  };
+
   const price = triageResult ? (SPECIALIZATION_PRICES[triageResult.specialization] || DEFAULT_PRICE) : DEFAULT_PRICE;
 
   return (
@@ -1323,9 +1373,18 @@ function CreateApptModal({ profile, onClose, onConfirm }: any) {
       <div className="space-y-5">
         {step === 1 && (
           <>
+            {/* Si es Admin o Médico, pedir datos del paciente obligatoriamente */}
+            {isAdminOrMedico && (
+              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-3 mb-4">
+                <p className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Datos del Paciente</p>
+                <Field label="Nombre Completo" value={manualPatient.name} onChange={(e: any) => setManualPatient({ ...manualPatient, name: e.target.value })} placeholder="Ej: MARIA PEREZ" />
+                <Field label="DNI o CE" value={manualPatient.dni} onChange={(e: any) => setManualPatient({ ...manualPatient, dni: e.target.value })} placeholder="12345678" maxLength={15} />
+              </div>
+            )}
+
             <div className="flex gap-3 bg-blue-500/5 border border-blue-500/15 rounded-xl p-4">
               <Activity size={14} className="text-blue-400 shrink-0 mt-0.5" />
-              <p className="text-[10px] text-blue-300/80 leading-relaxed">Describe tus síntomas. La IA determinará la urgencia y especialidad adecuada automáticamente.</p>
+              <p className="text-[10px] text-blue-300/80 leading-relaxed">Describe los síntomas. La IA determinará la urgencia y especialidad adecuada automáticamente.</p>
             </div>
             <div className="space-y-1.5">
               <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Síntomas</label>
@@ -1352,12 +1411,12 @@ function CreateApptModal({ profile, onClose, onConfirm }: any) {
               <Field label="Hora" type="time" value={d.time} onChange={(e: any) => setD(p => ({ ...p, time: e.target.value }))} />
             </div>
             <div className="flex gap-3">
-              <button onClick={() => onConfirm({ name: profile.name, dni: profile.dni, service: triageResult.specialization, urgency: triageResult.urgency, symptoms, ...d }, true)}
-                className="flex-1 bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
+              <button onClick={() => handleConfirm(true)} disabled={!d.date || !d.time}
+                className="flex-1 bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-40">
                 Pagar S/{price.toFixed(2)}
               </button>
-              <button onClick={() => onConfirm({ name: profile.name, dni: profile.dni, service: triageResult.specialization, urgency: triageResult.urgency, symptoms, ...d }, false)}
-                className="flex-1 border border-white/10 text-white font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-white/[0.05] transition-colors">
+              <button onClick={() => handleConfirm(false)} disabled={!d.date || !d.time}
+                className="flex-1 border border-white/10 text-white font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-white/[0.05] transition-colors disabled:opacity-40">
                 Pago en Clínica
               </button>
             </div>
