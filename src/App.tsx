@@ -570,7 +570,27 @@ export default function App() {
     </div>
   );
 }
-
+function ExternalSupportModal({ onClose, onSend }: any) {
+  const [data, setData] = React.useState({ name: '', dni: '', content: '' });
+  return (
+    <Modal title="Atención al Cliente (ATC)" onClose={onClose}>
+      <div className="space-y-6">
+        <p className="text-xs text-gray-400">Si no puedes acceder o tienes una queja urgente, envíanos tus datos y un asesor revisará tu caso.</p>
+        <div className="space-y-4">
+          <input type="text" placeholder="Nombre Completo" value={data.name} onChange={e => setData({ ...data, name: e.target.value })} className="w-full bg-white/[0.03] border border-white/5 py-4 px-5 rounded-2xl text-white outline-none text-sm" />
+          <input type="text" placeholder="DNI / CE" value={data.dni} onChange={e => setData({ ...data, dni: e.target.value })} className="w-full bg-white/[0.03] border border-white/5 py-4 px-5 rounded-2xl text-white outline-none text-sm" />
+          <textarea placeholder="Describe tu problema..." value={data.content} onChange={e => setData({ ...data, content: e.target.value })} className="w-full bg-white/[0.03] border border-white/5 py-4 px-5 rounded-2xl text-white outline-none text-sm h-32 resize-none" />
+        </div>
+        <button
+          onClick={() => { if (data.name && data.dni && data.content) onSend(data); }}
+          className="w-full bg-emerald-500 text-black font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
+        >
+          Enviar Requerimiento
+        </button>
+      </div>
+    </Modal>
+  );
+}
 // --- Sub-Views ---
 
 function SideNav({ profile, currentView, setView, isDarkMode }: any) {
@@ -1112,36 +1132,6 @@ function CompleteApptModal({ appt, profile, onClose, onConfirm }: any) {
           className="w-full bg-emerald-500 text-black font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors disabled:opacity-50"
         >
           Guardar y Completar Cita
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function ExternalSupportModal({ onClose, onSend }: any) {
-  const [data, setData] = useState({ name: '', dni: '', content: '' });
-  return (
-    <Modal title="Soporte y Reclamos (ATC)" onClose={onClose}>
-      <div className="space-y-6">
-        <p className="text-xs text-gray-400">Si tuviste problemas para ingresar o registrarte, déjanos tu mensaje y nuestro equipo se contactará contigo.</p>
-        <div className="space-y-2">
-          <label className="text-[10px] text-gray-500 uppercase font-black tracking-widest">Nombre Completo</label>
-          <input type="text" value={data.name} onChange={e => setData({ ...data, name: e.target.value })} className="w-full bg-white/[0.03] border border-white/5 py-4 px-5 rounded-2xl text-white outline-none text-sm focus:border-emerald-500/50" placeholder="Ej: Juan Pérez" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-[10px] text-gray-500 uppercase font-black tracking-widest">DNI / CE</label>
-          <input type="text" value={data.dni} onChange={e => setData({ ...data, dni: e.target.value })} className="w-full bg-white/[0.03] border border-white/5 py-4 px-5 rounded-2xl text-white outline-none text-sm focus:border-emerald-500/50" placeholder="Número de documento" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-[10px] text-gray-500 uppercase font-black tracking-widest">Tu Mensaje / Queja</label>
-          <textarea value={data.content} onChange={e => setData({ ...data, content: e.target.value })} className="w-full bg-white/[0.03] border border-white/5 py-4 px-5 rounded-2xl text-white outline-none text-sm h-32 resize-none focus:border-emerald-500/50" placeholder="Detalla tu inconveniente..." />
-        </div>
-        <button
-          onClick={() => { if (data.name && data.dni && data.content) onSend(data); }}
-          disabled={!data.name || !data.dni || !data.content}
-          className="w-full bg-emerald-500 text-black font-black py-5 rounded-2xl uppercase tracking-widest text-[10px] hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-        >
-          Enviar Mensaje a ATC
         </button>
       </div>
     </Modal>
