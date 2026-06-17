@@ -64,8 +64,8 @@ const DEFAULT_PRICE = 50.00;
 
 // Demo appointments: 2 ALTA, 2 MEDIA, 2 BAJA
 const DEMO_APPOINTMENTS: Appointment[] = [
-  { id: 'a1', patientName: 'CARLOS MENDOZA', patientDni: '11223344', date: today, time: '08:30', service: 'Cardiología', paymentStatus: 'PENDING', status: 'PENDING', amount: 120, userId: 'p1', urgency: 'ALTA', symptoms: 'Dolor intenso en el pecho y dificultad para respirar.' },
-  { id: 'a2', patientName: 'ANA TORRES', patientDni: '22334455', date: today, time: '09:00', service: 'Neurología', paymentStatus: 'PAID', status: 'PAID', amount: 130, userId: 'p2', urgency: 'ALTA', symptoms: 'Pérdida repentina de visión y mareos severos.', paymentMethod: 'YAPE', reference: 'TRX-9981' },
+  { id: 'a1', patientName: 'CARLOS MENDOZA', patientDni: '11223344', date: today, time: '08:30', service: 'Cardiología', paymentStatus: 'PENDING', status: 'PENDING', amount: 120, userId: 'p1', urgency: 'ALTA', symptoms: 'Dolor intenso en el pecho and dificultad para respirar.' },
+  { id: 'a2', patientName: 'ANA TORRES', patientDni: '22334455', date: today, time: '09:00', service: 'Neurología', paymentStatus: 'PAID', status: 'PAID', amount: 130, userId: 'p2', urgency: 'ALTA', symptoms: 'Pérdida repentina de visión and mareos severos.', paymentMethod: 'YAPE', reference: 'TRX-9981' },
   { id: 'a3', patientName: 'ROBERTO SILVA', patientDni: '33445566', date: today, time: '10:00', service: 'Traumatología', paymentStatus: 'PENDING', status: 'PENDING', amount: 100, userId: 'p3', urgency: 'MEDIA', symptoms: 'Fractura probable en tobillo derecho luego de caída.' },
   { id: 'a4', patientName: 'LUCIA VARGAS', patientDni: '44556677', date: tomorrow, time: '11:30', service: 'Ginecología', paymentStatus: 'PAID', status: 'PAID', amount: 110, userId: 'p4', urgency: 'MEDIA', symptoms: 'Control prenatal mes 6.', paymentMethod: 'PLIN', reference: 'PLN-1234' },
   { id: 'a5', patientName: 'PEDRO RAMIREZ', patientDni: '55667788', date: tomorrow, time: '14:00', service: 'Dermatología', paymentStatus: 'PENDING', status: 'PENDING', amount: 90, userId: 'p5', urgency: 'BAJA', symptoms: 'Manchas leves en el antebrazo sin dolor.' },
@@ -84,18 +84,17 @@ const DEMO_USERS: UserProfile[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────
-// TRIAGE CLÍNICO LOCAL INTELIGENTE (RESPALDO / OFFLINE OPTIMIZADO) 
+// TRIAGE CLÍNICO LOCAL INTELIGENTE (RESPALDO / OFFLINE)
 // ─────────────────────────────────────────────────────────────
 function smartLocalTriage(symptoms: string): { urgency: Urgency; specialization: string; reason: string } {
   const s = symptoms.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-  // Palabras clave críticas de vida o muerte (ALTA) - Se añadieron términos de heridas penetrantes y hemorragias
+  // Palabras clave críticas de vida o muerte (ALTA)
   const altaKeywords = [
-    'cuchillo', 'arma', 'blanca', 'bala', 'disparo', 'penetrante', 'apuñalo', 'cuchillada', 'pierde sangre',
-    'desangrando', 'sangrado masivo', 'hemorragia', 'perdi sangre', 'sangrando mucho', 'sangre mucha',
     'ojo', 'vista', 'vision', 'ciego', 'oftalmo', 'parti la cabeza', 'cabeza en dos', 'craneo',
-    'cerebro', 'infarto', 'pecho', 'corazon', 'paro', 'respirar', 'asfixia', 'ahogo', 'aire', 
-    'desmayo', 'inconsciente', 'perdi el conocimiento', 'amputa', 'morir', 'morirse', 'salio el ojo'
+    'cerebro', 'sangre mucha', 'sangrando', 'sangrado masivo', 'hemorragia', 'infarto', 'pecho',
+    'corazon', 'paro', 'respirar', 'asfixia', 'ahogo', 'aire', 'desmayo', 'inconsciente',
+    'perdi el conocimiento', 'amputa', 'morir', 'morirse', 'salio el ojo'
   ];
 
   // Palabras clave de urgencia intermedia (MEDIA)
@@ -108,10 +107,9 @@ function smartLocalTriage(symptoms: string): { urgency: Urgency; specialization:
   let urgency: Urgency = 'BAJA';
   let reason = "Los síntomas descritos parecen de baja complejidad. Se recomienda consulta general preventiva.";
 
-  // Evaluación con orden de prioridad estricto para que ALTA tenga precedencia
   if (altaKeywords.some(k => s.includes(k))) {
     urgency = 'ALTA';
-    reason = "¡URGENCIA CRÍTICA DETECTADA! Compromiso por trauma penetrante, hemorragia masiva, riesgo ocular o cardiovascular inmediato.";
+    reason = "¡URGENCIA CRÍTICA DETECTADA! Los síntomas indican potencial compromiso ocular, neurológico, cardiovascular o trauma severo que requiere atención inmediata.";
   } else if (mediaKeywords.some(k => s.includes(k))) {
     urgency = 'MEDIA';
     reason = "Urgencia de complejidad moderada. Se identificaron síntomas inflamatorios, posibles lesiones óseas o dolores agudos estables que deben evaluarse pronto.";
@@ -121,7 +119,7 @@ function smartLocalTriage(symptoms: string): { urgency: Urgency; specialization:
   let specialization = 'Medicina General';
   if (s.includes('corazon') || s.includes('pecho') || s.includes('infarto') || s.includes('cardio')) {
     specialization = 'Cardiología';
-  } else if (s.includes('hueso') || s.includes('fractura') || s.includes('tobillo') || s.includes('caida') || s.includes('esguince') || s.includes('dedo') || s.includes('roto') || s.includes('pierna') || s.includes('brazo')) {
+  } else if (s.includes('hueso') || s.includes('fractura') || s.includes('tobillo') || s.includes('caida') || s.includes('esguince') || s.includes('dedo') || s.includes('roto')) {
     specialization = 'Traumatología';
   } else if (s.includes('cerebro') || s.includes('cabeza') || s.includes('craneo') || s.includes('neuro') || s.includes('mareo')) {
     specialization = 'Neurología';
@@ -139,14 +137,14 @@ function smartLocalTriage(symptoms: string): { urgency: Urgency; specialization:
 }
 
 // ─────────────────────────────────────────────────────────────
-// SERVICIO DE LLAMADA A GEMINI CON BACKOFF Y RETRY 
+// SERVICIO DE LLAMADA A GEMINI CON BACKOFF Y RETRY
 // ─────────────────────────────────────────────────────────────
 async function callGeminiTriage(symptoms: string, apiKey: string): Promise<{ urgency: Urgency; specialization: string; reason: string }> {
   const systemPrompt = `Actúa como un médico experto de guardia en el triaje de emergencias de una clínica hospitalaria.
 Analiza con criterio médico real la descripción de los síntomas que te dará el paciente.
-Clasifica de manera extremadamente sensible y estricta la urgencia en uno de estos tres niveles:
-- ALTA: Amenaza inminente para la vida o la pérdida de un miembro/órgano. Incluye heridas por arma blanca, penetrantes por cuchillo, pérdida de sangre severa, desangramientos, infartos, traumas craneales, sangrados incontrolados, pérdida de visión, "ojos salidos", "cabeza partida" o asfixias.
-- MEDIA: Fracturas sospechadas, dolores agudos tolerables, fiebres muy elevadas, cortes profundos pero estables y sin pérdida masiva de sangre, esguinces severos o embarazo bajo control con dolor.
+Clasifica de manera estricta la urgencia en uno de estos tres niveles:
+- ALTA: Amenaza inminente para la vida o la pérdida de un miembro/órgano. Incluye infartos, traumas craneales, sangrados incontrolados, pérdida de visión, "ojos salidos", "cabeza partida" o asfixias.
+- MEDIA: Fracturas sospechadas, dolor agudo, fiebres muy elevadas, cortes profundos pero estables, esguinces severos o embarazo bajo control con dolor.
 - BAJA: Síntomas leves como resfriados comunes, revisiones, raspaduras de piel leves o controles médicos.
 
 Asigna la especialidad correcta de entre esta lista exacta: 'Cardiología', 'Traumatología', 'Pediatría', 'Dermatología', 'Medicina General', 'Neurología', 'Ginecología', 'Oftalmología'.
@@ -206,7 +204,7 @@ Responde ÚNICAMENTE con un formato JSON plano, sin bloques de código ni markdo
 }
 
 // ─────────────────────────────────────────────────────────────
-// SHARED COMPONENTS 
+// SHARED COMPONENTS
 // ─────────────────────────────────────────────────────────────
 const UrgencyBadge = ({ u }: { u?: Urgency }) => {
   if (!u) return null;
@@ -220,7 +218,7 @@ const StatusBadge = ({ s }: { s: ApptStatus }) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// MAIN APP 
+// MAIN APP
 // ─────────────────────────────────────────────────────────────
 export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -391,6 +389,7 @@ export default function App() {
   const activeAppts = appointments.filter(a => a.status !== 'CANCELLED' && a.status !== 'COMPLETED');
   const myAppts = profile?.role === 'patient' ? appointments.filter(a => a.userId === profile.id) : activeAppts;
 
+  // CORRECCIÓN: tipado explícito del mapa w para resolver error de indexación en TypeScript
   const sortedAppts = [...myAppts].sort((a, b) => {
     const w: Record<Urgency, number> = { ALTA: 3, MEDIA: 2, BAJA: 1 };
     const priorityB = w[(b.urgency as Urgency) || 'BAJA'] || 0;
@@ -412,7 +411,7 @@ export default function App() {
   if (loading) return null;
 
   // ─────────────────────────────────────────────────────────
-  // LOGIN SCREEN 
+  // LOGIN SCREEN
   // ─────────────────────────────────────────────────────────
   if (!profile) {
     return (
@@ -467,9 +466,9 @@ export default function App() {
 
             <div className="px-8 pb-6 text-center border-t border-white/5 pt-4">
               {authTab === 'patient' ? (
-                <a href="mailto:soportemediagenda@gmail.com" className="text-emerald-500 text-[10px] font-bold hover:underline">soportemediagenda@gmail.com</a>
+                <a href="mailto:kelcardozabr@uch.pe" className="text-emerald-500 text-[10px] font-bold hover:underline">kelcardozabr@uch.pe</a>
               ) : (
-                <p className="text-gray-600 text-[9px] uppercase tracking-widest">Solo personal autorizado</p>
+                <p className="text-gray-600 text-[9px] uppercase tracking-widest">Solo personal authorized</p>
               )}
             </div>
           </div>
@@ -487,7 +486,7 @@ export default function App() {
   }
 
   // ─────────────────────────────────────────────────────────
-  // MAIN LAYOUT 
+  // MAIN LAYOUT
   // ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex bg-[#060606] text-gray-300 font-sans">
@@ -613,7 +612,7 @@ export default function App() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// LAYOUT HELPERS 
+// LAYOUT HELPERS
 // ─────────────────────────────────────────────────────────────
 function SideItem({ id, icon, label, view, setView, badge }: any) {
   const active = view === id;
@@ -637,7 +636,7 @@ function Field({ label, ...props }: any) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// VIEWS 
+// VIEWS
 // ─────────────────────────────────────────────────────────────
 function DashboardView({ appointments }: any) {
   const paid = appointments.filter((a: any) => a.paymentStatus === 'PAID');
@@ -645,6 +644,7 @@ function DashboardView({ appointments }: any) {
   const pending = appointments.filter((a: any) => a.status === 'PENDING').length;
   const alta = appointments.filter((a: any) => a.urgency === 'ALTA' && a.status !== 'CANCELLED' && a.status !== 'COMPLETED').length;
 
+  // CORRECCIÓN: tipado explícito del mapa w para evitar implicit any al ordenar
   const todayAppts = appointments.filter((a: any) => a.date === today && a.status !== 'CANCELLED').sort((x: any, y: any) => {
     const w: Record<Urgency, number> = { ALTA: 3, MEDIA: 2, BAJA: 1 };
     const priorityY = w[(y.urgency as Urgency) || 'BAJA'] || 0;
@@ -859,6 +859,51 @@ function HistorialGlobalView({ appointments, onDelete }: any) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// TABLE HELPERS
+// ─────────────────────────────────────────────────────────────
+function Table({ headers, children }: any) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-white/5 bg-white/[0.015]">
+            {headers.map((h: string) => <th key={h} className="text-left px-5 py-3.5 text-[9px] uppercase tracking-[0.2em] text-gray-500 font-black whitespace-nowrap">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function TR({ children, highlight }: any) {
+  return <tr className={cn('border-b border-white/[0.04] transition-colors', highlight ? 'bg-red-500/[0.04] border-l-2 border-l-red-500' : 'hover:bg-white/[0.02]')}>{children}</tr>;
+}
+
+// CORRECCIÓN: tipado correcto para las celdas de la tabla para evitar advertencias de tipado implícito en typescript
+function TD({ children, bold, mono, muted, emerald, small }: any) {
+  return (
+    <td className={cn('px-5 py-3.5 whitespace-nowrap', bold ? 'font-bold text-white uppercase' : '', mono ? 'font-mono' : '', muted ? 'text-gray-500' : '', emerald ? 'text-emerald-400 font-bold' : '', small ? 'text-[9px]' : '')}>
+      {children}
+    </td>
+  );
+}
+
+function IconBtn({ icon, color, title, onClick }: any) {
+  const colors = { emerald: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20', blue: 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20', red: 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20', purple: 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border-purple-500/20', green: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20' };
+  return <button onClick={onClick} title={title} className={cn('p-1.5 rounded-lg border transition-colors', colors[color as keyof typeof colors] || colors.blue)}>{icon}</button>;
+}
+
+function SectionHeader({ icon, title }: any) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      {icon}
+      <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-white">{title}</h2>
+    </div>
+  );
+}
+
 function UsuariosView({ users, onCreate, onEdit, onDelete }: any) {
   return (
     <div className="space-y-5">
@@ -882,8 +927,8 @@ function UsuariosView({ users, onCreate, onEdit, onDelete }: any) {
               <TD muted>{u.specialization || '—'}</TD>
               <TD>
                 <div className="flex items-center gap-1">
-                  <Edit2 size={12} className="cursor-pointer text-blue-400" onClick={() => onEdit(u)} />
-                  {u.id !== 'admin-1' && <Trash2 size={12} className="cursor-pointer text-red-400" onClick={() => { if (confirm(`¿Eliminar a ${u.name}?`)) onDelete(u.id); }} />}
+                  <IconBtn icon={<Edit2 size={12} />} color="blue" title="Editar" onClick={() => onEdit(u)} />
+                  {u.id !== 'admin-1' && <IconBtn icon={<Trash2 size={12} />} color="red" title="Eliminar" onClick={() => { if (confirm(`¿Eliminar a ${u.name}?`)) onDelete(u.id); }} />}
                 </div>
               </TD>
             </TR>
@@ -1079,51 +1124,7 @@ function InformacionView({ profile, onUpdate }: any) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// TABLE HELPERS 
-// ─────────────────────────────────────────────────────────────
-function Table({ headers, children }: any) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-white/5 bg-white/[0.015]">
-            {headers.map((h: string) => <th key={h} className="text-left px-5 py-3.5 text-[9px] uppercase tracking-[0.2em] text-gray-500 font-black whitespace-nowrap">{h}</th>)}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function TR({ children, highlight }: any) {
-  return <tr className={cn('border-b border-white/[0.04] transition-colors', highlight ? 'bg-red-500/[0.04] border-l-2 border-l-red-500' : 'hover:bg-white/[0.02]')}>{children}</tr>;
-}
-
-function TD({ children, bold, mono, muted, emerald, small }: any) {
-  return (
-    <td className={cn('px-5 py-3.5 whitespace-nowrap', bold ? 'font-bold text-white uppercase' : '', mono ? 'font-mono' : '', muted ? 'text-gray-500' : '', emerald ? 'text-emerald-400 font-bold' : '', small ? 'text-[9px]' : '')}>
-      {children}
-    </td>
-  );
-}
-
-function IconBtn({ icon, color, title, onClick }: any) {
-  const colors = { emerald: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20', blue: 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20', red: 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20', purple: 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 border-purple-500/20', green: 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20' };
-  return <button onClick={onClick} title={title} className={cn('p-1.5 rounded-lg border transition-colors', colors[color as keyof typeof colors] || colors.blue)}>{icon}</button>;
-}
-
-function SectionHeader({ icon, title }: any) {
-  return (
-    <div className="flex items-center gap-2 mb-2">
-      {icon}
-      <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-white">{title}</h2>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// MODAL WRAPPER 
+// MODAL WRAPPER
 // ─────────────────────────────────────────────────────────────
 function Modal({ title, children, onClose }: any) {
   return (
@@ -1142,7 +1143,7 @@ function Modal({ title, children, onClose }: any) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MODALS 
+// MODALS
 // ─────────────────────────────────────────────────────────────
 function ExternalSupportForm({ onSend }: any) {
   const [d, setD] = React.useState({ name: '', dni: '', content: '' });
@@ -1269,13 +1270,194 @@ function RecipeModal({ appt, onClose, onConfirm }: any) {
         <p className="text-xs text-gray-500">Paciente: <span className="text-white font-bold">{appt.patientName}</span></p>
         <div className="space-y-1.5">
           <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Indicaciones / Receta</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5} placeholder="Prescripciones, dosis, recommendations..."
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5} placeholder="Prescripciones, dosis, recomendaciones..."
             className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none" />
         </div>
         <button onClick={() => onConfirm(appt.id, notes)}
           className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
           Guardar Receta
         </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// CREATE APPT MODAL (TRIAGE DUAL INTELIGENTE)
+// ─────────────────────────────────────────────────────────────
+function CreateApptModal({ profile, users, onClose, onConfirm }: any) {
+  const [step, setStep] = React.useState(1);
+  const [symptoms, setSymptoms] = React.useState('');
+  const [triageResult, setTriageResult] = React.useState<{ urgency: Urgency; specialization: string; reason: string } | null>(null);
+  const [triageSource, setTriageResultSource] = React.useState<'IA' | 'LOCAL'>('LOCAL');
+  const [loading, setLoading] = React.useState(false);
+  const [d, setD] = React.useState({ date: '', time: '' });
+  const [selectedPatient, setSelectedPatient] = React.useState<any>(null);
+  const [customPatientName, setCustomPatientName] = React.useState('');
+  const [customPatientDni, setCustomPatientDni] = React.useState('');
+
+  const isAdmin = profile.role === 'admin';
+
+  const runTriage = async () => {
+    if (!symptoms.trim()) return;
+    setLoading(true);
+
+    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+
+    try {
+      if (envApiKey) {
+        // Ejecutar Triaje mediante la IA de Google Gemini
+        const aiResult = await callGeminiTriage(symptoms, envApiKey);
+        setTriageResult({
+          urgency: aiResult.urgency,
+          specialization: aiResult.specialization,
+          reason: aiResult.reason
+        });
+        setTriageResultSource('IA');
+      } else {
+        // Fallback inmediato al motor clínico local optimizado
+        const localResult = smartLocalTriage(symptoms);
+        setTriageResult(localResult);
+        setTriageResultSource('LOCAL');
+      }
+      setStep(2);
+    } catch (error) {
+      console.warn("Fallo el triaje por IA, activando respaldo local...", error);
+      const localResult = smartLocalTriage(symptoms);
+      setTriageResult(localResult);
+      setTriageResultSource('LOCAL');
+      setStep(2);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const price = triageResult ? (SPECIALIZATION_PRICES[triageResult.specialization] || DEFAULT_PRICE) : DEFAULT_PRICE;
+
+  const getPatientData = () => {
+    if (!isAdmin) {
+      return { name: profile.name, dni: profile.dni || '', userId: profile.id };
+    } else {
+      if (selectedPatient) {
+        return { name: selectedPatient.name, dni: selectedPatient.dni, userId: selectedPatient.id };
+      } else {
+        return { name: customPatientName.toUpperCase(), dni: customPatientDni, userId: `guest_${Date.now()}` };
+      }
+    }
+  };
+
+  return (
+    <Modal title="Agendar Cita — Triaje Clínico" onClose={onClose}>
+      <div className="space-y-5">
+        {step === 1 && (
+          <>
+            {isAdmin && (
+              <div className="space-y-3">
+                <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Seleccionar Paciente (opcional)</label>
+                <select
+                  className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40"
+                  value={selectedPatient?.id || ''}
+                  onChange={e => {
+                    const id = e.target.value;
+                    if (id === 'new') {
+                      setSelectedPatient(null);
+                    } else {
+                      const patient = users.find((u: any) => u.id === id && u.role === 'patient');
+                      setSelectedPatient(patient);
+                    }
+                  }}
+                >
+                  <option value="">-- Seleccionar paciente registrado --</option>
+                  {users.filter((u: any) => u.role === 'patient').map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.name} (DNI: {p.dni})</option>
+                  ))}
+                  <option value="new">+ Nuevo paciente (ingresar manual)</option>
+                </select>
+                {!selectedPatient && (
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <Field label="Nombre y Apellido" value={customPatientName} onChange={(e: any) => setCustomPatientName(e.target.value)} placeholder="Juan Pérez" />
+                    <Field label="DNI/CE" value={customPatientDni} onChange={(e: any) => setCustomPatientDni(e.target.value)} placeholder="77665544" />
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex gap-3 bg-blue-500/5 border border-blue-500/15 rounded-xl p-4">
+              <Activity size={14} className="text-blue-400 shrink-0 mt-0.5" />
+              <p className="text-[10px] text-blue-300/80 leading-relaxed">
+                Describe con tus propias palabras qué sientes. El sistema determinará la especialidad idónea y la gravedad del caso de forma automática.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Síntomas y Dolencia</label>
+              <textarea value={symptoms} onChange={e => setSymptoms(e.target.value)} rows={5} placeholder="Ej: Siento un dolor fuerte y punzante en el pecho que se me corre al brazo izquierdo, me cuesta mucho respirar..."
+                className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none" />
+            </div>
+            <button onClick={runTriage} disabled={loading || !symptoms.trim()}
+              className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer">
+              {loading ? <><RefreshCw size={14} className="animate-spin" /> Procesando Triaje...</> : <><Activity size={14} /> Iniciar Triaje Médico</>}
+            </button>
+          </>
+        )}
+
+        {step === 2 && triageResult && (
+          <>
+            <div className={cn('p-6 rounded-xl border text-center', triageResult.urgency === 'ALTA' ? 'bg-red-500/5 border-red-500/20 shadow-[0_0_30px_rgba(239,68,68,0.06)]' : triageResult.urgency === 'MEDIA' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-emerald-500/5 border-emerald-500/20')}>
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-[8px] uppercase tracking-widest text-gray-500">Origen: <strong className={triageSource === 'IA' ? 'text-blue-400' : 'text-emerald-400'}>{triageSource}</strong></span>
+                <UrgencyBadge u={triageResult.urgency} />
+              </div>
+              <p className="text-[9px] uppercase font-black tracking-widest text-gray-500 mb-1">Especialidad Recomendada</p>
+              <p className="text-white font-black text-xl">{triageResult.specialization}</p>
+              <p className="text-emerald-400 font-black text-base mt-1.5">Costo: S/ {price.toFixed(2)}</p>
+
+              <div className="mt-4 p-3 bg-white/[0.015] border border-white/5 rounded-lg text-left">
+                <span className="text-[8px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Análisis Clínico:</span>
+                <p className="text-[10px] text-gray-300 leading-relaxed italic">"{triageResult.reason}"</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Fecha de Atención" type="date" value={d.date} onChange={(e: any) => setD(p => ({ ...p, date: e.target.value }))} />
+              <Field label="Hora Solicitada" type="time" value={d.time} onChange={(e: any) => setD(p => ({ ...p, time: e.target.value }))} />
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => {
+                if (!d.date || !d.time) return alert("Selecciona fecha y hora.");
+                const patient = getPatientData();
+                onConfirm({
+                  patientName: patient.name,
+                  patientDni: patient.dni,
+                  userId: patient.userId,
+                  service: triageResult.specialization,
+                  urgency: triageResult.urgency,
+                  symptoms,
+                  ...d
+                }, true);
+              }}
+                className="flex-1 bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 cursor-pointer">
+                Pagar S/ {price.toFixed(2)}
+              </button>
+              <button onClick={() => {
+                if (!d.date || !d.time) return alert("Selecciona fecha y hora.");
+                const patient = getPatientData();
+                onConfirm({
+                  patientName: patient.name,
+                  patientDni: patient.dni,
+                  userId: patient.userId,
+                  service: triageResult.specialization,
+                  urgency: triageResult.urgency,
+                  symptoms,
+                  ...d
+                }, false);
+              }}
+                className="flex-1 border border-white/10 text-white font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-white/[0.05] transition-colors cursor-pointer">
+                Pago en Caja
+              </button>
+            </div>
+            <button onClick={() => setStep(1)} className="w-full text-[9px] text-gray-600 hover:text-gray-400 uppercase tracking-widest transition-colors">← Re-evaluar Síntomas</button>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -1380,187 +1562,6 @@ function EditUserModal({ user, onClose, onConfirm }: any) {
           className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20">
           Guardar Cambios
         </button>
-      </div>
-    </Modal>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// CREATE APPT MODAL (TRIAGE DUAL INTELIGENTE) 
-// ─────────────────────────────────────────────────────────────
-function CreateApptModal({ profile, users, onClose, onConfirm }: any) {
-  const [step, setStep] = React.useState(1);
-  const [symptoms, setSymptoms] = React.useState('');
-  const [triageResult, setTriageResult] = React.useState<{ urgency: Urgency; specialization: string; reason: string } | null>(null);
-  const [triageSource, setTriageResultSource] = React.useState<'IA' | 'LOCAL'>('LOCAL');
-  const [loading, setLoading] = React.useState(false);
-  const [d, setD] = React.useState({ date: '', time: '' });
-  const [selectedPatient, setSelectedPatient] = React.useState<any>(null);
-  const [customPatientName, setCustomPatientName] = React.useState('');
-  const [customPatientDni, setCustomPatientDni] = React.useState('');
-
-  const isAdmin = profile.role === 'admin';
-
-  const runTriage = async () => {
-    if (!symptoms.trim()) return;
-    setLoading(true);
-
-    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
-
-    try {
-      if (envApiKey) {
-        // Triaje por IA mediante Google Gemini (Ajustado con prompt hiper-sensible en callGeminiTriage)
-        const aiResult = await callGeminiTriage(symptoms, envApiKey);
-        setTriageResult({
-          urgency: aiResult.urgency,
-          specialization: aiResult.specialization,
-          reason: aiResult.reason
-        });
-        setTriageResultSource('IA');
-      } else {
-        // Fallback al motor clínico local corregido ante falta de API Key
-        const localResult = smartLocalTriage(symptoms);
-        setTriageResult(localResult);
-        setTriageResultSource('LOCAL');
-      }
-      setStep(2);
-    } catch (error) {
-      console.warn("Fallo el triaje por IA, activando respaldo local...", error);
-      const localResult = smartLocalTriage(symptoms);
-      setTriageResult(localResult);
-      setTriageResultSource('LOCAL');
-      setStep(2);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const price = triageResult ? (SPECIALIZATION_PRICES[triageResult.specialization] || DEFAULT_PRICE) : DEFAULT_PRICE;
-
-  const getPatientData = () => {
-    if (!isAdmin) {
-      return { name: profile.name, dni: profile.dni || '', userId: profile.id };
-    } else {
-      if (selectedPatient) {
-        return { name: selectedPatient.name, dni: selectedPatient.dni, userId: selectedPatient.id };
-      } else {
-        return { name: customPatientName.toUpperCase(), dni: customPatientDni, userId: `guest_${Date.now()}` };
-      }
-    }
-  };
-
-  return (
-    <Modal title="Agendar Cita — Triaje Clínico" onClose={onClose}>
-      <div className="space-y-5">
-        {step === 1 && (
-          <>
-            {isAdmin && (
-              <div className="space-y-3">
-                <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Seleccionar Paciente (opcional)</label>
-                <select
-                  className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40"
-                  value={selectedPatient?.id || ''}
-                  onChange={e => {
-                    const id = e.target.value;
-                    if (id === 'new') {
-                      setSelectedPatient(null);
-                    } else {
-                      const patient = users.find((u: any) => u.id === id && u.role === 'patient');
-                      setSelectedPatient(patient);
-                    }
-                  }}
-                >
-                  <option value="">-- Seleccionar paciente registrado --</option>
-                  {users.filter((u: any) => u.role === 'patient').map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.name} (DNI: {p.dni})</option>
-                  ))}
-                  <option value="new">+ Nuevo paciente (ingresar manual)</option>
-                </select>
-                {!selectedPatient && (
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <Field label="Nombre y Apellido" value={customPatientName} onChange={(e: any) => setCustomPatientName(e.target.value)} placeholder="Juan Pérez" />
-                    <Field label="DNI/CE" value={customPatientDni} onChange={(e: any) => setCustomPatientDni(e.target.value)} placeholder="77665544" />
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex gap-3 bg-blue-500/5 border border-blue-500/15 rounded-xl p-4">
-              <Activity size={14} className="text-blue-400 shrink-0 mt-0.5" />
-              <p className="text-[10px] text-blue-300/80 leading-relaxed">
-                Describe con tus propias palabras qué sientes. El sistema determinará la especialidad idónea y la gravedad del caso de forma automática.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[9px] text-gray-500 uppercase font-black tracking-[0.2em]">Síntomas y Dolencia</label>
-              <textarea value={symptoms} onChange={e => setSymptoms(e.target.value)} rows={5} placeholder="Ej: Siento un dolor fuerte y punzante en el pecho..."
-                className="w-full bg-[#0a0a0a] border border-white/8 py-3 px-4 rounded-xl text-sm text-white outline-none focus:border-emerald-500/40 transition-colors resize-none" />
-            </div>
-            <button onClick={runTriage} disabled={loading || !symptoms.trim()}
-              className="w-full bg-emerald-500 text-black font-black text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer">
-              {loading ? <><RefreshCw size={14} className="animate-spin" /> Procesando Triaje...</> : <><Activity size={14} /> Iniciar Triaje Médico</>}
-            </button>
-          </>
-        )}
-
-        {step === 2 && triageResult && (
-          <>
-            <div className={cn('p-6 rounded-xl border text-center', triageResult.urgency === 'ALTA' ? 'bg-red-500/5 border-red-500/20 shadow-[0_0_30px_rgba(239,68,68,0.06)]' : triageResult.urgency === 'MEDIA' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-emerald-500/5 border-emerald-500/20')}>
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-[8px] uppercase tracking-widest text-gray-500">Origen: <strong className={triageSource === 'IA' ? 'text-blue-400' : 'text-emerald-400'}>{triageSource}</strong></span>
-                <UrgencyBadge u={triageResult.urgency} />
-              </div>
-              <p className="text-[9px] uppercase font-black tracking-widest text-gray-500 mb-1">Especialidad Recomendada</p>
-              <p className="text-white font-black text-xl">{triageResult.specialization}</p>
-              <p className="text-emerald-400 font-black text-base mt-1.5">Costo: S/ {price.toFixed(2)}</p>
-
-              <div className="mt-4 p-3 bg-white/[0.015] border border-white/5 rounded-lg text-left">
-                <span className="text-[8px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Análisis Clínico:</span>
-                <p className="text-[10px] text-gray-300 leading-relaxed italic">"{triageResult.reason}"</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Fecha de Atención" type="date" value={d.date} onChange={(e: any) => setD(p => ({ ...p, date: e.target.value }))} />
-              <Field label="Hora Solicitada" type="time" value={d.time} onChange={(e: any) => setD(p => ({ ...p, time: e.target.value }))} />
-            </div>
-
-            <div className="flex gap-3">
-              <button onClick={() => {
-                if (!d.date || !d.time) return alert("Selecciona fecha y hora.");
-                const patient = getPatientData();
-                onConfirm({
-                  patientName: patient.name,
-                  patientDni: patient.dni,
-                  userId: patient.userId,
-                  service: triageResult.specialization,
-                  urgency: triageResult.urgency,
-                  symptoms,
-                  ...d
-                }, true);
-              }}
-                className="flex-1 bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 cursor-pointer">
-                Pagar S/ {price.toFixed(2)}
-              </button>
-              <button onClick={() => {
-                if (!d.date || !d.time) return alert("Selecciona fecha y hora.");
-                const patient = getPatientData();
-                onConfirm({
-                  patientName: patient.name,
-                  patientDni: patient.dni,
-                  userId: patient.userId,
-                  service: triageResult.specialization,
-                  urgency: triageResult.urgency,
-                  symptoms,
-                  ...d
-                }, false);
-              }}
-                className="flex-1 border border-white/10 text-white font-black text-[9px] uppercase tracking-widest py-4 rounded-xl hover:bg-white/[0.05] transition-colors cursor-pointer">
-                Pago en Caja
-              </button>
-            </div>
-            <button onClick={() => setStep(1)} className="w-full text-[9px] text-gray-600 hover:text-gray-400 uppercase tracking-widest transition-colors">← Re-evaluar Síntomas</button>
-          </>
-        )}
       </div>
     </Modal>
   );
