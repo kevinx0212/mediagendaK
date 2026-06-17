@@ -1,3 +1,4 @@
+
 /**
  * MEDIAGENDAK v4 — Sistema de Gestión Médica (Triage Clínico Inteligente Dual)
  * @license SPDX-License-Identifier: Apache-2.0
@@ -466,7 +467,7 @@ export default function App() {
 
             <div className="px-8 pb-6 text-center border-t border-white/5 pt-4">
               {authTab === 'patient' ? (
-                <a href="mailto:kelcardozabr@uch.pe" className="text-emerald-500 text-[10px] font-bold hover:underline">kelcardozabr@uch.pe</a>
+                <a href="mailto:soportemediagendak@gmail.com" className="text-emerald-500 text-[10px] font-bold hover:underline">soportemediagendak@gmail.com</a>
               ) : (
                 <p className="text-gray-600 text-[9px] uppercase tracking-widest">Solo personal authorized</p>
               )}
