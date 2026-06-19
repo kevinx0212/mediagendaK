@@ -1303,7 +1303,7 @@ function CreateApptModal({ profile, users, onClose, onConfirm }: any) {
     if (!symptoms.trim()) return;
     setLoading(true);
 
-    const envApiKey = import.meta.env.VITE_GEMINI_API_KEY1 || "";
+    const envApiKey = import.meta.env.GEMINI_API_KEY1 || "";
 
     try {
       if (envApiKey) {
